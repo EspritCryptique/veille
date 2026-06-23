@@ -25,7 +25,7 @@ SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 
 # --- Réglages que l'on ajustera en observant les résultats ---
-SEUIL_SIMILARITE = 0.83     # au-dessus = "même événement"
+SEUIL_SIMILARITE = 0.86     # au-dessus = "même événement"
 FENETRE_HEURES = 48         # on ne compare qu'aux clusters récents
 MESSAGES_PAR_PASSAGE = 50   # on traite par petits lots
 
@@ -38,11 +38,22 @@ def vecteur_en_texte(v):
     return "[" + ",".join(str(x) for x in v) + "]"
 
 
+def nettoyer_pour_embedding(texte):
+    """Retire l'emballage (préfixes, liens, signatures) pour comparer le fond."""
+    import re
+    texte = re.sub(r"https?://\S+", "", texte)        # liens
+    texte = re.sub(r"\[[^\]]*\]\([^)]*\)", "", texte)  # liens markdown [texte](url)
+    texte = re.sub(r"(?i)^\s*intel\s*:", "", texte)    # préfixe "INTEL:"
+    texte = re.sub(r"(?i)\bvia\s+@\w+", "", texte)      # "via @source"
+    texte = re.sub(r"@\w+", "", texte)                  # mentions @
+    return texte.strip()
+
+
 def calculer_embedding(texte):
     """Demande à Gemini la 'signature de sens' du texte (768 nombres)."""
     reponse = client_gemini.models.embed_content(
         model="gemini-embedding-001",
-        contents=texte,
+        contents=nettoyer_pour_embedding(texte),
         config={"task_type": "SEMANTIC_SIMILARITY", "output_dimensionality": 768},
     )
     return reponse.embeddings[0].values
