@@ -1,52 +1,62 @@
 """
-Déduplication + clustering — le "cerveau" du système (version 2).
+Déduplication + clustering — le "cerveau" du système (version 4).
 
-Logique :
-  1. (filtre 1, gratuit) doublon exact déjà rangé -> rattacher ;
-  2. embeddings (Gemini, gratuit) -> présélection des clusters PROCHES ;
-  3. si un candidat est quasi identique -> rattacher directement ;
-  4. sinon, sur les candidats proches uniquement, on demande à Gemini
-     "même événement précis ? OUI/NON" -> le premier OUI gagne ;
-  5. aucun candidat retenu -> nouvel événement (nouveau cluster).
+  - Embeddings (Gemini, gratuit) : présélection des clusters PROCHES,
+    en ne comparant que le TITRE du message (pas l'emballage).
+  - Arbitre IA (Groq, gratuit, ~14 400 appels/jour) : tranche
+    "même événement ? OUI/NON" uniquement sur les cas proches.
 
-Le LLM n'intervient QUE sur les cas ambigus (proches mais pas identiques).
-Tout le reste est déterministe. Règle d'or : dans le doute, on sépare.
+Le LLM n'intervient donc que sur les cas ambigus. Règle d'or :
+dans le doute, on sépare.
 """
 
 import os
 import re
+import time
 from datetime import datetime, timezone
 
 from google import genai
+from groq import Groq
 from supabase import create_client
 
 # --- Secrets (fournis par GitHub) ---
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
+GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 
 # --- Réglages ajustables ---
 FENETRE_HEURES = 48          # on ne compare qu'aux clusters récents
-TOP_K = 5                    # nombre de clusters candidats récupérés
+TOP_K = 5                    # clusters candidats récupérés
 SEUIL_CANDIDAT = 0.78        # en dessous : pas même un candidat
-SEUIL_IDENTIQUE = 0.97       # au-dessus : quasi identique, on rattache sans LLM
-MAX_CANDIDATS_LLM = 3        # nombre max de candidats soumis au LLM
-MESSAGES_PAR_PASSAGE = 40    # on traite par petits lots
+SEUIL_IDENTIQUE = 0.97       # au-dessus : quasi identique, rattacher sans LLM
+MAX_CANDIDATS_LLM = 3        # candidats max soumis à l'arbitre
+MESSAGES_PAR_PASSAGE = 40    # lot par passage
+PAUSE_LLM = 2.1              # secondes entre 2 appels Groq (limite ~30/min)
 
-MODELE_LLM = "gemini-2.5-flash-lite"
+MODELE_GROQ = "llama-3.1-8b-instant"
 
 client_gemini = genai.Client(api_key=GEMINI_API_KEY)
+client_groq = Groq(api_key=GROQ_API_KEY)
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
-def nettoyer_pour_embedding(texte):
-    """Retire l'emballage (préfixes, liens, signatures) pour comparer le fond."""
-    texte = re.sub(r"https?://\S+", "", texte)          # liens
-    texte = re.sub(r"\[[^\]]*\]\([^)]*\)", "", texte)    # liens markdown [texte](url)
-    texte = re.sub(r"(?i)^\s*intel\s*:", "", texte)      # préfixe "INTEL:"
-    texte = re.sub(r"(?i)\bjust in\b", "", texte)        # "JUST IN"
-    texte = re.sub(r"@\w+", "", texte)                    # mentions @
+def nettoyer(texte):
+    """Retire l'emballage : préfixes, liens, mentions."""
+    texte = re.sub(r"https?://\S+", "", texte)
+    texte = re.sub(r"\[[^\]]*\]\([^)]*\)", "", texte)
+    texte = re.sub(r"(?i)^\s*intel\s*:", "", texte)
+    texte = re.sub(r"(?i)\bjust in\b", "", texte)
+    texte = re.sub(r"@\w+", "", texte)
     return texte.strip()
+
+
+def extraire_titre(texte):
+    """Garde l'essentiel : le titre / la première phrase, sans les listes."""
+    t = nettoyer(texte)
+    t = re.split(r"\n\s*(?:[-*•]|\d+[.)])\s", t)[0]
+    t = t.split("\n\n")[0]
+    return t.strip()[:300]
 
 
 def vecteur_en_texte(v):
@@ -54,28 +64,30 @@ def vecteur_en_texte(v):
 
 
 def calculer_embedding(texte):
-    """Demande à Gemini la 'signature de sens' du texte (768 nombres)."""
     reponse = client_gemini.models.embed_content(
         model="gemini-embedding-001",
-        contents=nettoyer_pour_embedding(texte),
+        contents=texte,
         config={"task_type": "SEMANTIC_SIMILARITY", "output_dimensionality": 768},
     )
     return reponse.embeddings[0].values
 
 
 def meme_evenement(texte_a, texte_b):
-    """Demande à Gemini si deux actualités décrivent le même événement précis.
-    Lève une exception en cas d'indisponibilité (le message sera réessayé plus tard).
-    """
+    """Demande à Groq si deux actualités décrivent le même événement précis.
+    Lève une exception en cas d'indisponibilité (le message sera réessayé)."""
     prompt = (
         "Deux actualités crypto/finance. Décrivent-elles le MÊME événement "
-        "précis (mêmes acteurs et même fait), et pas seulement un thème proche ?\n\n"
-        f"A : {texte_a[:500]}\n\n"
-        f"B : {texte_b[:500]}\n\n"
+        "précis (mêmes acteurs et même fait), et pas seulement un thème "
+        f"proche ?\n\nA : {texte_a[:500]}\n\nB : {texte_b[:500]}\n\n"
         "Réponds uniquement par OUI ou NON."
     )
-    reponse = client_gemini.models.generate_content(model=MODELE_LLM, contents=prompt)
-    return (reponse.text or "").strip().upper().startswith("OUI")
+    reponse = client_groq.chat.completions.create(
+        model=MODELE_GROQ,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0,
+        max_tokens=3,
+    )
+    return reponse.choices[0].message.content.strip().upper().startswith("OUI")
 
 
 def maintenant():
@@ -120,8 +132,9 @@ def main():
             rattaches += 1
             continue
 
-        # 2. Embeddings -> clusters candidats proches
-        emb_txt = vecteur_en_texte(calculer_embedding(contenu))
+        # 2. Embedding du TITRE -> clusters candidats proches
+        titre = extraire_titre(contenu)
+        emb_txt = vecteur_en_texte(calculer_embedding(titre))
         candidats = (
             supabase.rpc(
                 "match_clusters",
@@ -134,18 +147,18 @@ def main():
 
         cible = None
         if candidats and candidats[0]["similarite"] >= SEUIL_IDENTIQUE:
-            # 3. Quasi identique -> rattacher sans déranger le LLM
+            # 3. Quasi identique -> rattacher sans déranger l'arbitre
             cible = candidats[0]["id"]
         elif candidats:
-            # 4. Cas ambigus -> on demande à Gemini de trancher
+            # 4. Cas ambigus -> Groq tranche
             try:
                 for c in candidats[:MAX_CANDIDATS_LLM]:
                     if meme_evenement(contenu, c["titre"] or ""):
                         cible = c["id"]
                         break
+                    time.sleep(PAUSE_LLM)
             except Exception as e:
-                # LLM indisponible (ex. limite atteinte) : on réessaiera plus tard
-                print(f"  LLM indisponible, message reporté : {e}")
+                print(f"  Arbitre indisponible, message reporté : {e}")
                 reportes += 1
                 continue
 
@@ -156,11 +169,9 @@ def main():
             supabase.table("clusters").update({"activite_le": maintenant()}).eq("id", cible).execute()
             rattaches += 1
         else:
-            # 5. Nouvel événement
-            titre = contenu.replace("\n", " ")[:200]
             nouveau = (
                 supabase.table("clusters")
-                .insert({"titre": titre, "centroide": emb_txt, "statut": "actif"})
+                .insert({"titre": titre[:200], "centroide": emb_txt, "statut": "actif"})
                 .execute()
                 .data
             )
