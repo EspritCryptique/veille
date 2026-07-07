@@ -4,7 +4,7 @@ Rédaction des drafts — transforme un cluster en post Telegram.
 À chaque passage :
   1. il prend les clusters qui n'ont pas encore de brouillon Telegram ;
   2. il lit leurs messages sources (les FAITS) ;
-  3. il demande à Groq de rédiger un post en français ;
+  3. il demande à Groq de rédiger un post en français, selon la charte ;
   4. il enregistre le brouillon dans la table 'drafts' (statut 'en_attente').
 
 Seule la rédaction (étape 3) utilise le LLM. Le reste est déterministe.
@@ -27,14 +27,28 @@ MODELE_GROQ = "llama-3.3-70b-versatile"   # modèle de meilleure qualité pour l
 CLUSTERS_PAR_PASSAGE = 10                  # nombre de drafts rédigés par passage
 MESSAGES_PAR_CLUSTER = 5                   # faits max transmis au LLM
 
-# --- Charte éditoriale : MODIFIE ce texte pour imposer TON style ---
+# --- CHARTE ÉDITORIALE : c'est ici que vit TON style. Modifie librement. ---
 CHARTE_EDITORIALE = """
-Tu écris pour un média crypto francophone, sur sa chaîne Telegram.
-Ton : dynamique, clair, accessible, sérieux mais pas pompeux.
-Format : court (2 à 4 phrases), une accroche forte dès le début,
-éventuellement 1 ou 2 puces si utile. Un emoji pertinent en tête si approprié.
-Termine par une courte mise en perspective si c'est pertinent.
-Évite les superlatifs creux et le jargon inutile.
+Tu écris un post pour la chaîne Telegram d'un média crypto francophone.
+
+STYLE (règles impératives) :
+- Commence par un emoji thématique adapté au sujet.
+- Ton neutre et journalistique : aucun commentaire, aucune opinion.
+- Deux phrases maximum, et STRICTEMENT moins de 280 caractères au total.
+- Phrases courtes et factuelles. Conserve les chiffres précis des faits.
+- Fais ressortir l'information principale, ce qui compte vraiment.
+- Écris en français correct ; évite les anglicismes.
+- Explique brièvement un terme ou une appellation qu'une personne non initiée
+  ne connaîtrait pas ; n'explique pas les termes connus du grand public.
+- Grands nombres au format "100 millions $" ou "10 milliards $".
+- Si l'information n'est pas confirmée à 100 %, emploie le conditionnel.
+- Cite une source UNIQUEMENT si les faits mentionnent une agence officielle
+  ou un grand média de référence apportant une vraie valeur ; dans ce cas
+  seulement, termine par "selon [Nom de la source]".
+
+INTERDIT :
+- Pas de hashtags, pas de question rhétorique, pas d'appel à l'engagement.
+- Pas de parenthèses, pas de deux-points, pas de tiret long.
 """
 
 client_groq = Groq(api_key=GROQ_API_KEY)
@@ -46,21 +60,21 @@ def maintenant():
 
 
 def rediger(faits):
-    """Demande à Groq de rédiger un post Telegram à partir des faits fournis."""
+    """Demande à Groq de rédiger un post Telegram selon la charte."""
     prompt = (
         f"{CHARTE_EDITORIALE}\n\n"
         "RÈGLE ABSOLUE : utilise UNIQUEMENT les faits ci-dessous. N'invente "
         "aucun chiffre, aucune citation, aucune date, aucun détail. Si une "
         "information manque, ne la mentionne pas.\n\n"
-        "Rédige en FRANÇAIS un post Telegram à partir de ces faits :\n\n"
+        "Voici les faits :\n\n"
         f"{faits}\n\n"
-        "Réponds uniquement par le texte du post, sans préambule ni explication."
+        "Réponds uniquement par le texte du post, sans préambule ni guillemets."
     )
     reponse = client_groq.chat.completions.create(
         model=MODELE_GROQ,
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.6,
-        max_tokens=400,
+        temperature=0.3,
+        max_tokens=160,
     )
     return reponse.choices[0].message.content.strip()
 
