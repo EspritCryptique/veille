@@ -23,7 +23,7 @@ SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 
 # --- Réglages ajustables ---
-MODELE_GROQ = "llama-3.3-70b-versatile"   # modèle de meilleure qualité pour l'écriture
+MODELE_GROQ = "openai/gpt-oss-120b"   # modèle de meilleure qualité pour l'écriture
 CLUSTERS_PAR_PASSAGE = 10                  # nombre de drafts rédigés par passage
 MESSAGES_PAR_CLUSTER = 5                   # faits max transmis au LLM
 
@@ -74,13 +74,14 @@ def rediger(faits):
         "information manque, ne la mentionne pas.\n\n"
         "Voici les faits :\n\n"
         f"{faits}\n\n"
-        "Réponds uniquement par le texte du post, sans préambule ni guillemets."
+        "Réponds uniquement par le texte final du post, sans raisonnement, "
+        "sans préambule ni guillemets."
     )
     reponse = client_groq.chat.completions.create(
         model=MODELE_GROQ,
         messages=[{"role": "user", "content": prompt}],
         temperature=0.3,
-        max_tokens=160,
+        max_tokens=1024,
     )
     return reponse.choices[0].message.content.strip()
 
