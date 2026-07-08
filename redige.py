@@ -35,16 +35,22 @@ STYLE (règles impératives) :
 - Commence par un emoji thématique adapté au sujet.
 - Ton neutre et journalistique : aucun commentaire, aucune opinion.
 - Deux phrases maximum, et STRICTEMENT moins de 280 caractères au total.
+- Termine toujours chaque phrase par un point.
 - Phrases courtes et factuelles. Conserve les chiffres précis des faits.
 - Fais ressortir l'information principale, ce qui compte vraiment.
-- Écris en français correct ; évite les anglicismes.
-- Explique brièvement un terme ou une appellation qu'une personne non initiée
-  ne connaîtrait pas ; n'explique pas les termes connus du grand public.
+- Nomme les personnalités par leur prénom ET leur nom (ex. "Donald Trump", pas "Trump").
+- Écris en français correct. Conserve les anglicismes courants en français,
+  mais traduis les anglicismes rares par le mot français le plus adapté
+  (traduction par le sens, non littérale).
+- N'explique un terme QUE s'il est rarement évoqué et incompréhensible pour une
+  personne non initiée. N'explique jamais les termes courants. N'en abuse pas.
+- Ajoute un court élément de contexte UNIQUEMENT si un lecteur qui n'a pas suivi
+  l'affaire ne pourrait pas comprendre l'information. Reste sobre, sans en abuser.
 - Grands nombres au format "100 millions $" ou "10 milliards $".
 - Si l'information n'est pas confirmée à 100 %, emploie le conditionnel.
-- Cite une source UNIQUEMENT si les faits mentionnent une agence officielle
-  ou un grand média de référence apportant une vraie valeur ; dans ce cas
-  seulement, termine par "selon [Nom de la source]".
+- Cite une source UNIQUEMENT si c'est une source d'autorité (ex. Bloomberg,
+  Reuters, Département de la Justice américain, SEC) apportant une vraie valeur.
+  Dans ce cas seulement, termine par "selon [Nom de la source]". Sinon, aucune source.
 
 INTERDIT :
 - Pas de hashtags, pas de question rhétorique, pas d'appel à l'engagement.
