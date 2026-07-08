@@ -23,34 +23,56 @@ SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 
 # --- Réglages ajustables ---
-MODELE_GROQ = "openai/gpt-oss-120b"   # modèle de meilleure qualité pour l'écriture
-CLUSTERS_PAR_PASSAGE = 10                  # nombre de drafts rédigés par passage
-MESSAGES_PAR_CLUSTER = 5                   # faits max transmis au LLM
+MODELE_GROQ = "openai/gpt-oss-120b"        # modèle de meilleure qualité pour l'écriture
+CLUSTERS_PAR_PASSAGE = 10                   # nombre de drafts rédigés par passage
+MESSAGES_PAR_CLUSTER = 5                    # faits max transmis au LLM
 
 # --- CHARTE ÉDITORIALE : c'est ici que vit TON style. Modifie librement. ---
 CHARTE_EDITORIALE = """
 Tu écris un post pour la chaîne Telegram d'un média crypto francophone.
 
-STYLE (règles impératives) :
-- Commence par un emoji thématique adapté au sujet.
-- Ton neutre et journalistique : aucun commentaire, aucune opinion.
-- Deux phrases maximum, et STRICTEMENT moins de 280 caractères au total.
+OBJECTIF : transmettre l'information principale de façon complète, mais la plus
+claire et concise possible.
+
+LONGUEUR ET STYLE :
+- Vise UNE seule phrase courte si l'essentiel peut être dit ainsi.
+- Passe à DEUX phrases seulement si l'information doit être complétée ou précisée.
+  Jamais plus de deux phrases, et toujours moins de 280 caractères au total.
 - Termine toujours chaque phrase par un point.
+- Ton neutre et journalistique : aucun commentaire, aucune opinion.
 - Phrases courtes et factuelles. Conserve les chiffres précis des faits.
-- Fais ressortir l'information principale, ce qui compte vraiment.
-- Nomme les personnalités par leur prénom ET leur nom (ex. "Donald Trump", pas "Trump").
-- Écris en français correct. Conserve les anglicismes courants en français,
-  mais traduis les anglicismes rares par le mot français le plus adapté
-  (traduction par le sens, non littérale).
-- N'explique un terme QUE s'il est rarement évoqué et incompréhensible pour une
-  personne non initiée. N'explique jamais les termes courants. N'en abuse pas.
+- Quand l'événement vient de se produire, écris au PRÉSENT de narration
+  (ex. "La plateforme lance un produit", pas "a lancé") : plus vivant, "en direct".
+- Nomme les personnalités par leur prénom ET leur nom (ex. "Donald Trump").
+- Écris en français correct. Conserve les anglicismes courants en français, mais
+  traduis les anglicismes rares par le mot français le plus adapté (par le sens).
+- N'explique un terme QUE s'il est rare et incompréhensible pour un non-initié.
+  N'explique jamais les termes courants. N'en abuse pas.
 - Ajoute un court élément de contexte UNIQUEMENT si un lecteur qui n'a pas suivi
-  l'affaire ne pourrait pas comprendre l'information. Reste sobre, sans en abuser.
-- Grands nombres au format "100 millions $" ou "10 milliards $".
+  l'affaire ne pourrait pas comprendre. Reste sobre, sans en abuser.
 - Si l'information n'est pas confirmée à 100 %, emploie le conditionnel.
-- Cite une source UNIQUEMENT si c'est une source d'autorité (ex. Bloomberg,
-  Reuters, Département de la Justice américain, SEC) apportant une vraie valeur.
-  Dans ce cas seulement, termine par "selon [Nom de la source]". Sinon, aucune source.
+
+CHIFFRES (règle stricte) :
+- Écris les grands nombres avec l'unité en toutes lettres, format "13 millions $"
+  ou "1 300 milliards $" (espace comme séparateur de milliers, symbole $ à la fin).
+- N'utilise JAMAIS d'abréviation type "13 $M", ni les mots "trillion"/"trilliard" :
+  exprime toujours en millions ou en milliards (1 300 milliards $, pas 1,3 trilliard).
+
+EMOJI D'OUVERTURE :
+- Commence par UN seul emoji thématique, pertinent et sobre. Évite les emojis
+  exotiques et la répétition. N'emploie "🚀" qu'avec beaucoup de modération.
+- Grille indicative selon le sujet :
+  🚨 news importante / breaking      🔴 alerte ou marché baissier
+  📊 données      📈 ou 🟢 marché haussier      📉 ou 🩸 marché baissier
+  💬 ou 🎙️ citation      🏦 banque, institution, finance      🇺🇸 (drapeaux) pays
+  💵 ou 💰 ou 💸 argent, dollar, stablecoins      📆 date historique      🔐 sécurité
+  ⛓️ ou 🔗 blockchain      👮 ou 🕵️ ou 🚔 enquête, arrestation      🤔 news qui questionne
+  👀 insolite, intrigant      👨‍⚖️ ou ⚖️ justice      🖼️ ou 🙈 NFT      🗞️ ou 📰 actualité      ⛏️ minage
+
+SOURCE :
+- Cite une source UNIQUEMENT si c'est une source d'autorité (ex. Bloomberg, Reuters,
+  Département de la Justice américain, SEC) apportant une vraie valeur. Dans ce cas
+  seulement, termine par "selon [Nom de la source]". Sinon, aucune source.
 
 INTERDIT :
 - Pas de hashtags, pas de question rhétorique, pas d'appel à l'engagement.
