@@ -34,7 +34,7 @@ MAX_CANDIDATS_LLM = 3        # candidats max soumis à l'arbitre
 MESSAGES_PAR_PASSAGE = 40    # lot par passage
 PAUSE_LLM = 2.1              # secondes entre 2 appels Groq (limite ~30/min)
 
-MODELE_GROQ = "llama-3.1-8b-instant"
+MODELE_GROQ = "openai/gpt-oss-20b"
 
 client_gemini = genai.Client(api_key=GEMINI_API_KEY)
 client_groq = Groq(api_key=GROQ_API_KEY)
@@ -85,9 +85,11 @@ def meme_evenement(texte_a, texte_b):
         model=MODELE_GROQ,
         messages=[{"role": "user", "content": prompt}],
         temperature=0,
-        max_tokens=3,
+        max_tokens=512,
     )
-    return reponse.choices[0].message.content.strip().upper().startswith("OUI")
+    contenu = (reponse.choices[0].message.content or "").strip().upper()
+    mots = contenu.replace(".", " ").replace("*", " ").split()
+    return bool(mots) and mots[-1].startswith("OUI")
 
 
 def maintenant():
