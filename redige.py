@@ -34,23 +34,42 @@ Tu écris un post pour la chaîne Telegram d'un média crypto francophone.
 OBJECTIF : transmettre l'information principale de façon complète, mais la plus
 claire et concise possible.
 
-LONGUEUR ET STYLE :
+LONGUEUR ET STRUCTURE :
 - Vise UNE seule phrase courte si l'essentiel peut être dit ainsi.
 - Passe à DEUX phrases seulement si l'information doit être complétée ou précisée.
   Jamais plus de deux phrases, et toujours moins de 280 caractères au total.
 - Termine toujours chaque phrase par un point.
+- Quand un chiffre est le cœur de l'information, place-le EN TÊTE de phrase comme
+  sujet. Écris "100 millions $ de positions ont été liquidées", jamais
+  "des positions d'une valeur de 100 millions $ ont été liquidées".
+
+TON ET LANGUE :
 - Ton neutre et journalistique : aucun commentaire, aucune opinion.
 - Phrases courtes et factuelles. Conserve les chiffres précis des faits.
-- Quand l'événement vient de se produire, écris au PRÉSENT de narration
-  (ex. "La plateforme lance un produit", pas "a lancé") : plus vivant, "en direct".
-- Nomme les personnalités par leur prénom ET leur nom (ex. "Donald Trump").
-- Écris en français correct. Conserve les anglicismes courants en français, mais
-  traduis les anglicismes rares par le mot français le plus adapté (par le sens).
+- Choisis toujours le verbe et la tournure les plus naturels et concis en français.
+  Écris "dominer" plutôt que "prendre la tête de".
+- Nomme les personnalités par leur prénom ET leur nom, SANS titre honorifique.
+  Écris "Donald Trump", jamais "le président Donald Trump" ni "Trump" seul.
+- Si l'information n'est pas confirmée à 100 %, emploie le conditionnel.
+
+TEMPS :
+- Emploie le PRÉSENT de narration quand l'événement se produit ou s'annonce
+  maintenant (ex. "La plateforme lance un produit") : plus vivant, "en direct".
+- Mais emploie le PASSÉ COMPOSÉ quand le fait s'inscrit dans une fenêtre de temps
+  révolue (ex. "dans les 60 dernières minutes", "hier", "la semaine dernière").
+
+NOMS PROPRES ET ANGLICISMES (règle stricte) :
+- Ne traduis JAMAIS un nom propre officiel : loi, institution, entreprise, produit.
+  Écris "le Clarity Act", jamais "l'acte Clarity". Écris "la SEC", pas sa traduction.
+- Conserve les anglicismes courants du vocabulaire crypto et finance :
+  short, long, staking, airdrop, trading, spot, hack, stablecoin, token...
+  Écris "positions shorts", jamais "positions courtes".
+- Ne traduis QUE les anglicismes rares, par le mot français le plus adapté
+  (traduction par le sens, non littérale).
 - N'explique un terme QUE s'il est rare et incompréhensible pour un non-initié.
   N'explique jamais les termes courants. N'en abuse pas.
 - Ajoute un court élément de contexte UNIQUEMENT si un lecteur qui n'a pas suivi
   l'affaire ne pourrait pas comprendre. Reste sobre, sans en abuser.
-- Si l'information n'est pas confirmée à 100 %, emploie le conditionnel.
 
 CHIFFRES (règle stricte) :
 - Écris les grands nombres avec l'unité en toutes lettres, format "13 millions $"
@@ -79,6 +98,17 @@ INTERDIT :
 - Pas de parenthèses, pas de deux-points, pas de tiret long.
 """
 
+# --- EXEMPLES : le modèle imite ces modèles. Ajoutes-en quand un rendu te déplaît. ---
+EXEMPLES = """
+Voici des exemples de rendu attendu. Imite exactement ce style.
+
+FAITS : $100,000,000 worth of crypto shorts liquidated in the past 60 minutes.
+POST : 📉 100 millions $ de positions shorts sur le marché crypto ont été liquidées dans les 60 dernières minutes.
+
+FAITS : President Trump is urging the U.S. Senate to pass the CLARITY Act, warning that China could otherwise take the lead in digital finance and AI.
+POST : 🚨 Donald Trump demande au Sénat américain d'adopter le Clarity Act, alertant sur le fait que la Chine pourrait dominer la finance numérique et l'IA.
+"""
+
 client_groq = Groq(api_key=GROQ_API_KEY)
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -90,7 +120,8 @@ def maintenant():
 def rediger(faits):
     """Demande à Groq de rédiger un post Telegram selon la charte."""
     prompt = (
-        f"{CHARTE_EDITORIALE}\n\n"
+        f"{CHARTE_EDITORIALE}\n"
+        f"{EXEMPLES}\n"
         "RÈGLE ABSOLUE : utilise UNIQUEMENT les faits ci-dessous. N'invente "
         "aucun chiffre, aucune citation, aucune date, aucun détail. Si une "
         "information manque, ne la mentionne pas.\n\n"
