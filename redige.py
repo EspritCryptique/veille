@@ -104,6 +104,7 @@ def rediger(faits):
         messages=[{"role": "user", "content": prompt}],
         temperature=0.3,
         max_tokens=1024,
+        extra_body={"reasoning_effort": "low"},  # peu de "réflexion" -> il reste du budget pour la réponse
     )
     return reponse.choices[0].message.content.strip()
 
@@ -153,6 +154,11 @@ def main():
             texte = rediger(faits)
         except Exception as e:
             print(f"  Rédaction indisponible pour {cid}, on réessaiera : {e}")
+            continue
+
+        # Sécurité : ne jamais enregistrer un brouillon vide (repris au prochain passage)
+        if not texte.strip():
+            print(f"  Draft vide pour {cid}, on réessaiera au prochain passage.")
             continue
 
         # 5. Enregistrer le brouillon
