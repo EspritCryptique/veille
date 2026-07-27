@@ -1,8 +1,6 @@
 name: Ingestion Telegram
 
 on:
-  schedule:
-    - cron: "*/5 * * * *"   # toutes les 5 minutes
   workflow_dispatch: {}      # permet aussi de lancer à la main (bouton "Run workflow")
 
 jobs:
