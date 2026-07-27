@@ -59,6 +59,8 @@ TON ET LANGUE :
   "L'exchange BitMart", "L'action Google", "Le cours du pétrole Brent".
 - Supprime les tickers boursiers accolés au nom d'une société.
   Écris "L'action SpaceX", jamais "SpaceX $SPCX" ni "Google $GOOGL".
+- N'emploie JAMAIS le possessif anglais en 's. Garde le nom seul, ou tourne
+  la phrase en français. Écris "Strategy", jamais "Michael Saylor's Strategy".
 - Évite les calques de l'anglais : préfère la tournure française naturelle.
   Écris "ne devrait pas réduire", jamais "n'est pas prévue pour réduire".
 - N'abrège pas les noms de pays. Écris "entre les États-Unis et l'Iran",
@@ -112,6 +114,7 @@ EMOJI D'OUVERTURE :
   💵 ou 💰 ou 💸 argent, dollar, stablecoins      📆 date historique      🔐 sécurité
   ⛓️ ou 🔗 blockchain      👮 ou 🕵️ ou 🚔 enquête, arrestation      🤔 news qui questionne
   👀 insolite, intrigant      👨‍⚖️ ou ⚖️ justice      🖼️ ou 🙈 NFT      🗞️ ou 📰 actualité      ⛏️ minage
+  ❌ non-événement, absence d'action, démenti (ex. "n'a acheté aucun Bitcoin")
 
 SOURCE :
 - Cite une source UNIQUEMENT si c'est une source d'autorité (ex. Bloomberg, Reuters,
@@ -166,6 +169,9 @@ CORRIGÉ : 📈 L'action Google dépasse à nouveau les 4 000 milliards $ de cap
 
 REFUSÉ  : 📊 5,43 millions d'actions MSTR ont été vendues pour 544,5 millions $ entre le 20 et le 26 juillet.
 CORRIGÉ : 🚨 Strategy a vendu l'équivalent de 5,43 millions d'actions MSTR pour 544,5 millions $ la semaine dernière.
+
+REFUSÉ  : 📊 Michael Saylor's Strategy n'a acheté aucun Bitcoin au cours du dernier mois.
+CORRIGÉ : ❌ Strategy n'a acheté aucun bitcoin au cours du dernier mois.
 
 REFUSÉ  : 🚨 La Federal Reserve n'est pas prévue pour réduire les taux d'intérêt lors de la réunion FOMC de cette semaine.
 CORRIGÉ : 🚨 La Réserve fédérale américaine ne devrait pas réduire les taux d'intérêt lors de la réunion FOMC de cette semaine.
