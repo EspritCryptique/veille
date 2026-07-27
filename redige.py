@@ -178,6 +178,9 @@ CORRIGÉ : 🚨 La Réserve fédérale américaine ne devrait pas réduire les t
 
 REFUSÉ  : 🟢 Des médiateurs progressent pour relancer les pourparlers US-Iran et restaurer un cesse-feu intérimaire.
 CORRIGÉ : 🟢 Des médiateurs progressent pour relancer les pourparlers entre les États-Unis et l'Iran et restaurer un cessez-le-feu.
+
+REFUSÉ  : 🚀 Strive annonce l'achat de 79 Bitcoin pour 5,2 millions $.
+CORRIGÉ : 🚀 Strive annonce l'achat de 79 bitcoins pour 5,2 millions $.
 """
 
 client_groq = Groq(api_key=GROQ_API_KEY)
