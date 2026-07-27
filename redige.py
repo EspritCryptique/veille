@@ -40,9 +40,13 @@ LONGUEUR ET STRUCTURE :
 - Passe à DEUX phrases seulement si l'information doit être complétée ou précisée.
   Jamais plus de deux phrases, et toujours moins de 280 caractères au total.
 - Termine toujours chaque phrase par un point.
-- Quand un chiffre est le cœur de l'information, place-le EN TÊTE de phrase comme
-  sujet. Écris "100 millions $ de positions ont été liquidées", jamais
-  "des positions d'une valeur de 100 millions $ ont été liquidées".
+- Écris à la VOIX ACTIVE, avec l'acteur en sujet quand il y en a un.
+  Écris "Strategy annonce un rachat de 25 millions $ de ses actions", jamais
+  "25 millions $ de rachat d'actions a été déclaré par Strategy".
+  Écris "Les ETF Bitcoin spot américains ont enregistré 33,79 millions $ d'entrées
+  nettes", jamais "33,79 millions $ d'entrées nettes ont afflué dans les ETF".
+- Place le chiffre en tête de phrase UNIQUEMENT s'il n'y a pas d'acteur identifiable
+  (ex. "100 millions $ de positions shorts ont été liquidées").
 
 TON ET LANGUE :
 - Ton neutre et journalistique : aucun commentaire, aucune opinion.
@@ -51,6 +55,17 @@ TON ET LANGUE :
   Écris "dominer" plutôt que "prendre la tête de".
 - Nomme les personnalités par leur prénom ET leur nom, SANS titre honorifique.
   Écris "Donald Trump", jamais "le président Donald Trump" ni "Trump" seul.
+- PRÉCISE LA NATURE de l'entité quand le nom seul serait ambigu :
+  "L'exchange BitMart", "L'action Google", "Le cours du pétrole Brent".
+- Supprime les tickers boursiers accolés au nom d'une société.
+  Écris "L'action SpaceX", jamais "SpaceX $SPCX" ni "Google $GOOGL".
+- Évite les calques de l'anglais : préfère la tournure française naturelle.
+  Écris "ne devrait pas réduire", jamais "n'est pas prévue pour réduire".
+- N'abrège pas les noms de pays. Écris "entre les États-Unis et l'Iran",
+  jamais "pourparlers US-Iran".
+- Préfère une période relative à une date brute quand le fait est récent :
+  "la semaine dernière" plutôt que "entre le 20 et le 26 juillet".
+- Soigne l'orthographe française : "cessez-le-feu", "actions préférentielles".
 - Si l'information n'est pas confirmée à 100 %, emploie le conditionnel.
 
 TEMPS :
@@ -60,8 +75,13 @@ TEMPS :
   révolue (ex. "dans les 60 dernières minutes", "hier", "la semaine dernière").
 
 NOMS PROPRES ET ANGLICISMES (règle stricte) :
-- Ne traduis JAMAIS un nom propre officiel : loi, institution, entreprise, produit.
-  Écris "le Clarity Act", jamais "l'acte Clarity". Écris "la SEC", pas sa traduction.
+- Ne traduis JAMAIS le nom d'une loi, d'une entreprise ou d'un produit.
+  Écris "le Clarity Act", jamais "l'acte Clarity".
+- MAIS emploie le nom français d'usage des institutions quand il existe.
+  Écris "la Réserve fédérale américaine" pour "the Federal Reserve",
+  "le Département de la Justice américain" pour "the Department of Justice".
+- N'emploie jamais de pluriel anglais : écris "les ETF", jamais "les ETFs".
+- Mets la préposition devant les unités : "8 millions d'ETH", pas "8 millions ETH".
 - Conserve les anglicismes courants du vocabulaire crypto et finance :
   short, long, staking, airdrop, trading, spot, hack, stablecoin, token...
   Écris "positions shorts", jamais "positions courtes".
@@ -77,10 +97,14 @@ CHIFFRES (règle stricte) :
   ou "1 300 milliards $" (espace comme séparateur de milliers, symbole $ à la fin).
 - N'utilise JAMAIS d'abréviation type "13 $M", ni les mots "trillion"/"trilliard" :
   exprime toujours en millions ou en milliards (1 300 milliards $, pas 1,3 trilliard).
+- ATTENTION AU FAUX-AMI : un "billion" anglais vaut 1 000 milliards en français.
+  Traduis "4 trillion $" par "4 000 milliards $", jamais par "4 billions $".
 
 EMOJI D'OUVERTURE :
-- Commence par UN seul emoji thématique, pertinent et sobre. Évite les emojis
-  exotiques et la répétition. N'emploie "🚀" qu'avec beaucoup de modération.
+- Commence par UN SEUL emoji thématique, pertinent et sobre. Jamais deux emojis
+  côte à côte (pas de "📈 🇺🇸"). Évite les emojis exotiques et la répétition.
+  N'emploie "🚀" qu'avec beaucoup de modération.
+- Le premier mot après l'emoji prend toujours une MAJUSCULE.
 - Grille indicative selon le sujet :
   🚨 news importante / breaking      🔴 alerte ou marché baissier
   📊 données      📈 ou 🟢 marché haussier      📉 ou 🩸 marché baissier
@@ -110,6 +134,46 @@ FAITS : President Trump is urging the U.S. Senate to pass the CLARITY Act, warni
 POST : 🚨 Donald Trump demande au Sénat américain d'adopter le Clarity Act, alertant sur le fait que la Chine pourrait dominer la finance numérique et l'IA.
 """
 
+# --- CORRECTIONS : mauvais rendus déjà observés et leur version corrigée.
+#     Ajoute une paire ici chaque fois qu'un rendu te déplaît. ---
+CORRECTIONS = """
+Voici des rendus qui ont été REFUSÉS et leur version CORRIGÉE. Ne reproduis
+jamais les erreurs de la colonne refusée.
+
+REFUSÉ  : 📉 le S&P 500 efface tous ses gains et devient négatif.
+CORRIGÉ : 📉 Le S&P 500 efface tous ses gains du jour et passe dans le négatif.
+
+REFUSÉ  : 🏦 25 millions $ de rachat d'actions STRC a été déclaré par Strategy.
+CORRIGÉ : 🏦 Strategy annonce avoir effectué un rachat de 25 millions $ de ses actions préférentielles STRC.
+
+REFUSÉ  : 📈 🇺🇸 33,79 millions $ d'encours nets ont afflué dans les Bitcoin Spot ETFs la semaine dernière.
+CORRIGÉ : 📈 Les ETF Bitcoin spot américains ont enregistré 33,79 millions $ d'entrées nettes la semaine dernière.
+
+REFUSÉ  : 🚨 BitMart ne proposera plus de services de trading d'ici quelques heures.
+CORRIGÉ : 🚨 L'exchange BitMart ne proposera plus de services de trading d'ici quelques heures.
+
+REFUSÉ  : 🔥 Brent Crude a gagné 63 % en six mois.
+CORRIGÉ : 🔥 Le cours du pétrole Brent a augmenté de 63 % en six mois.
+
+REFUSÉ  : 🟢 Lido a lancé la migration de plus de 8 millions ETH vers son module Curated v2.
+CORRIGÉ : 🟢 Lido lance la migration de plus de 8 millions d'ETH vers son module Curated v2.
+
+REFUSÉ  : 📉 SpaceX $SPCX atteint un nouveau plus bas historique à 110 $.
+CORRIGÉ : 📉 L'action SpaceX atteint un nouveau plus bas historique à 110 $.
+
+REFUSÉ  : 📈 Google $GOOGL dépasse à nouveau les 4 billions $ de capitalisation boursière.
+CORRIGÉ : 📈 L'action Google dépasse à nouveau les 4 000 milliards $ de capitalisation boursière.
+
+REFUSÉ  : 📊 5,43 millions d'actions MSTR ont été vendues pour 544,5 millions $ entre le 20 et le 26 juillet.
+CORRIGÉ : 🚨 Strategy a vendu l'équivalent de 5,43 millions d'actions MSTR pour 544,5 millions $ la semaine dernière.
+
+REFUSÉ  : 🚨 La Federal Reserve n'est pas prévue pour réduire les taux d'intérêt lors de la réunion FOMC de cette semaine.
+CORRIGÉ : 🚨 La Réserve fédérale américaine ne devrait pas réduire les taux d'intérêt lors de la réunion FOMC de cette semaine.
+
+REFUSÉ  : 🟢 Des médiateurs progressent pour relancer les pourparlers US-Iran et restaurer un cesse-feu intérimaire.
+CORRIGÉ : 🟢 Des médiateurs progressent pour relancer les pourparlers entre les États-Unis et l'Iran et restaurer un cessez-le-feu.
+"""
+
 client_groq = Groq(api_key=GROQ_API_KEY)
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -118,11 +182,21 @@ def maintenant():
     return datetime.now(timezone.utc).isoformat()
 
 
+def majuscule_initiale(texte):
+    """Met une majuscule au premier mot, même s'il est précédé d'un emoji.
+    Correction déterministe : garantie à 100 %, sans dépendre du modèle."""
+    for i, caractere in enumerate(texte):
+        if caractere.isalpha():
+            return texte[:i] + caractere.upper() + texte[i + 1:]
+    return texte
+
+
 def rediger(faits):
     """Demande à Groq de rédiger un post Telegram selon la charte."""
     prompt = (
         f"{CHARTE_EDITORIALE}\n"
         f"{EXEMPLES}\n"
+        f"{CORRECTIONS}\n"
         "RÈGLE ABSOLUE : utilise UNIQUEMENT les faits ci-dessous. N'invente "
         "aucun chiffre, aucune citation, aucune date, aucun détail. Si une "
         "information manque, ne la mentionne pas.\n\n"
@@ -138,7 +212,7 @@ def rediger(faits):
         max_tokens=1024,
         extra_body={"reasoning_effort": "low"},  # peu de "réflexion" -> il reste du budget pour la réponse
     )
-    return reponse.choices[0].message.content.strip()
+    return majuscule_initiale(reponse.choices[0].message.content.strip())
 
 
 def main():
