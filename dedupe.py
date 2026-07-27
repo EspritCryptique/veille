@@ -28,10 +28,10 @@ SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 # --- Réglages ajustables ---
 FENETRE_HEURES = 48          # on ne compare qu'aux clusters récents
 TOP_K = 5                    # clusters candidats récupérés
-SEUIL_CANDIDAT = 0.78        # en dessous : pas même un candidat
+SEUIL_CANDIDAT = 0.70        # en dessous : pas même un candidat
 SEUIL_IDENTIQUE = 0.97       # au-dessus : quasi identique, rattacher sans LLM
 MAX_CANDIDATS_LLM = 3        # candidats max soumis à l'arbitre
-MESSAGES_PAR_PASSAGE = 40    # lot par passage
+MESSAGES_PAR_PASSAGE = 25    # lot par passage (plus d'arbitrages = passages plus longs)
 PAUSE_LLM = 2.1              # secondes entre 2 appels Groq (limite ~30/min)
 
 MODELE_GROQ = "openai/gpt-oss-20b"
@@ -76,9 +76,16 @@ def meme_evenement(texte_a, texte_b):
     """Demande à Groq si deux actualités décrivent le même événement précis.
     Lève une exception en cas d'indisponibilité (le message sera réessayé)."""
     prompt = (
-        "Deux actualités crypto/finance. Décrivent-elles le MÊME événement "
-        "précis (mêmes acteurs et même fait), et pas seulement un thème "
-        f"proche ?\n\nA : {texte_a[:500]}\n\nB : {texte_b[:500]}\n\n"
+        "Deux actualités crypto/finance. Relèvent-elles de la MÊME annonce "
+        "ou du MÊME événement ?\n\n"
+        "Réponds OUI si elles concernent le même acteur et la même annonce au "
+        "même moment, MÊME si elles en décrivent des aspects différents ou "
+        "citent des chiffres différents. Exemple : une société qui publie son "
+        "point hebdomadaire, et dont on rapporte séparément la vente d'actions, "
+        "le rachat de titres et le niveau de trésorerie, c'est OUI.\n"
+        "Réponds NON si les acteurs sont différents, ou s'il s'agit d'événements "
+        "distincts qui partagent seulement un thème ou un secteur.\n\n"
+        f"A : {texte_a[:500]}\n\nB : {texte_b[:500]}\n\n"
         "Réponds uniquement par OUI ou NON."
     )
     reponse = client_groq.chat.completions.create(
