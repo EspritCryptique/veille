@@ -15,6 +15,7 @@ import os
 import re
 import hashlib
 import asyncio
+from datetime import datetime, timedelta, timezone
 
 from telethon import TelegramClient
 from telethon.sessions import StringSession
@@ -30,6 +31,9 @@ SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 # Nombre de messages récents qu'on regarde par chaîne à chaque passage.
 # 30 est large pour un intervalle de 5 minutes ; on pourra l'ajuster.
 MESSAGES_PAR_CHAINE = 30
+
+# On ignore tout message plus ancien que ce délai : on ne veut que de l'actu fraîche.
+AGE_MAX_HEURES = 24
 
 # Connexion à la base de données
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -75,7 +79,12 @@ async def main():
         canal = source["identifiant"]
         try:
             lignes = []
+            limite = datetime.now(timezone.utc) - timedelta(hours=AGE_MAX_HEURES)
             async for msg in client.iter_messages(canal, limit=MESSAGES_PAR_CHAINE):
+                # Les messages arrivent du plus récent au plus ancien :
+                # dès qu'on dépasse la limite d'âge, inutile de continuer.
+                if msg.date and msg.date < limite:
+                    break
                 if not msg.text:
                     continue  # on ignore les messages sans texte (image seule, etc.)
 
