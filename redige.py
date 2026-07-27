@@ -181,6 +181,9 @@ CORRIGÉ : 🟢 Des médiateurs progressent pour relancer les pourparlers entre 
 
 REFUSÉ  : 🚀 Strive annonce l'achat de 79 Bitcoin pour 5,2 millions $.
 CORRIGÉ : 🚀 Strive annonce l'achat de 79 bitcoins pour 5,2 millions $.
+
+REFUSÉ  : 🚨 Donald Trump affirme que le taux d'intérêt devrait être abaissé.
+CORRIGÉ : 🚨 Donald Trump appelle à une baisse des taux d'intérêt, réitérant sa pression sur la Réserve fédérale pour assouplir sa politique monétaire.
 """
 
 client_groq = Groq(api_key=GROQ_API_KEY)
