@@ -28,6 +28,7 @@ SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 # --- Réglages ajustables ---
 CARTES_PAR_PASSAGE = 5        # nb de cartes envoyées par passage (évite le spam)
 HEURES_AVANT_RAPPEL = 6       # un brouillon différé revient après ce délai
+AGE_MAX_HEURES = 24           # au-delà, un brouillon non traité est périmé
 
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -74,11 +75,18 @@ def envoyer_cartes():
         {"statut": "en_attente", "message_id": None}
     ).eq("statut", "differe").lt("maj_le", limite).execute()
 
+    # Les brouillons trop vieux jamais envoyés sont périmés : on ne les propose pas
+    perime = (maintenant() - timedelta(hours=AGE_MAX_HEURES)).isoformat()
+    supabase.table("drafts").update({"statut": "perime"}).eq(
+        "statut", "en_attente"
+    ).filter("message_id", "is", "null").lt("cree_le", perime).execute()
+
     drafts = (
         supabase.table("drafts")
         .select("id, contenu")
         .eq("statut", "en_attente")
         .filter("message_id", "is", "null")
+        .order("cree_le", desc=True)   # les plus récentes d'abord
         .limit(CARTES_PAR_PASSAGE)
         .execute()
         .data
