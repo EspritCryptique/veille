@@ -12,7 +12,7 @@ Anti-hallucination : le prompt interdit d'inventer chiffres et citations.
 """
 
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from groq import Groq
 from supabase import create_client
@@ -26,6 +26,7 @@ SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 MODELE_GROQ = "openai/gpt-oss-120b"        # modèle de meilleure qualité pour l'écriture
 CLUSTERS_PAR_PASSAGE = 10                   # nombre de drafts rédigés par passage
 MESSAGES_PAR_CLUSTER = 5                    # faits max transmis au LLM
+AGE_MAX_HEURES = 24                         # on ne rédige que pour l'actu fraîche
 
 # --- CHARTE ÉDITORIALE : c'est ici que vit TON style. Modifie librement. ---
 CHARTE_EDITORIALE = """
@@ -148,10 +149,12 @@ def main():
     deja_fait = {d["cluster_id"] for d in drafts_existants}
 
     # 2. Clusters récents, on garde ceux sans brouillon
+    limite = (datetime.now(timezone.utc) - timedelta(hours=AGE_MAX_HEURES)).isoformat()
     clusters = (
         supabase.table("clusters")
         .select("id, titre")
         .eq("statut", "actif")
+        .gt("activite_le", limite)
         .order("cree_le", desc=True)
         .limit(60)
         .execute()
