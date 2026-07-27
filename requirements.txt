@@ -2,3 +2,4 @@ telethon>=1.40,<2
 supabase>=2,<3
 google-genai>=1,<2
 groq>=0.11,<1
+requests>=2.31,<3
