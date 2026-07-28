@@ -108,7 +108,7 @@ def main():
         supabase.table("messages")
         .select("id, contenu, hash")
         .filter("cluster_id", "is", "null")
-        .order("poste_le", desc=False)
+        .order("poste_le", desc=True)   # les plus récents d'abord : l'actu fraîche ne fait pas la queue
         .limit(MESSAGES_PAR_PASSAGE)
         .execute()
         .data
