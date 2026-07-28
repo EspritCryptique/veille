@@ -106,7 +106,7 @@ def maintenant():
 def main():
     messages = (
         supabase.table("messages")
-        .select("id, contenu, hash")
+        .select("id, contenu, hash, embedding")
         .filter("cluster_id", "is", "null")
         .order("poste_le", desc=True)   # les plus récents d'abord : l'actu fraîche ne fait pas la queue
         .limit(MESSAGES_PAR_PASSAGE)
@@ -143,7 +143,16 @@ def main():
 
         # 2. Embedding du TITRE -> clusters candidats proches
         titre = extraire_titre(contenu)
-        emb_txt = vecteur_en_texte(calculer_embedding(titre))
+        emb_txt = msg.get("embedding")
+        if not emb_txt:
+            # Pas encore calculé : on le demande à Gemini (quota : 1000/jour)
+            try:
+                emb_txt = vecteur_en_texte(calculer_embedding(titre))
+            except Exception as e:
+                # Quota atteint ou service indisponible : on réessaiera plus tard
+                print(f"  Embedding indisponible, message reporté : {e}")
+                reportes += 1
+                continue
         candidats = (
             supabase.rpc(
                 "match_clusters",
