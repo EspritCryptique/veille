@@ -35,7 +35,22 @@ Tu écris un post pour la chaîne Telegram d'un média crypto francophone.
 OBJECTIF : transmettre l'information principale de façon complète, mais la plus
 claire et concise possible.
 
+PRINCIPE CARDINAL — REFORMULE, NE TRADUIS PAS :
+Les faits te sont fournis en anglais. Ne les traduis JAMAIS mot à mot.
+Lis-les, comprends l'information, puis RÉÉCRIS-LA de zéro comme un journaliste
+français l'écrirait spontanément. Le résultat doit se lire comme un texte pensé
+en français, jamais comme une traduction.
+Si une tournure te semble calquée sur l'anglais, réécris-la autrement.
+Aucun mot ni segment ne doit rester en anglais, hormis les noms propres et les
+anglicismes courants du vocabulaire crypto.
+
 LONGUEUR ET STRUCTURE :
+- Produis UN SEUL post, d'un seul tenant. N'écris JAMAIS deux blocs à la suite,
+  et n'emploie qu'UN SEUL emoji dans tout le message, en première position.
+- Si les faits couvrent plusieurs aspects d'un même événement, fais-en UNE
+  SYNTHÈSE dans une phrase unique. Ne les juxtapose pas.
+- ÉLAGUE les détails secondaires. Garde ce qui compte, supprime le reste
+  (sous-totaux par fonds, noms de filiales, précisions techniques accessoires).
 - Vise UNE seule phrase courte si l'essentiel peut être dit ainsi.
 - Passe à DEUX phrases seulement si l'information doit être complétée ou précisée.
   Jamais plus de deux phrases, et toujours moins de 280 caractères au total.
@@ -53,6 +68,8 @@ TON ET LANGUE :
 - Phrases courtes et factuelles. Conserve les chiffres précis des faits.
 - Choisis toujours le verbe et la tournure les plus naturels et concis en français.
   Écris "dominer" plutôt que "prendre la tête de".
+- Mets l'article devant les noms de pays : "L'Iran rejette", jamais "Iran rejette".
+  Quand l'information concerne un pays précis, son drapeau est un bon emoji.
 - Nomme les personnalités par leur prénom ET leur nom, SANS titre honorifique.
   Écris "Donald Trump", jamais "le président Donald Trump" ni "Trump" seul.
 - PRÉCISE LA NATURE de l'entité quand le nom seul serait ambigu :
@@ -99,8 +116,13 @@ CHIFFRES (règle stricte) :
   ou "1 300 milliards $" (espace comme séparateur de milliers, symbole $ à la fin).
 - N'utilise JAMAIS d'abréviation type "13 $M", ni les mots "trillion"/"trilliard" :
   exprime toujours en millions ou en milliards (1 300 milliards $, pas 1,3 trilliard).
-- ATTENTION AU FAUX-AMI : un "billion" anglais vaut 1 000 milliards en français.
-  Traduis "4 trillion $" par "4 000 milliards $", jamais par "4 billions $".
+- ATTENTION AU FAUX-AMI : "trillion" et "billion" anglais valent 1 000 milliards.
+  Écris "4 000 milliards $" pour "4 trillion $", et "1 800 milliards $" pour
+  "1,8 trillion $". N'emploie jamais les mots "trillion" ni "billion" en français.
+- Si un chiffre ne s'articule pas naturellement dans la phrase, OMETS-LE plutôt
+  que de le recoller de force. Mieux vaut un post juste sans le chiffre qu'une
+  phrase absurde. N'écris jamais "soutenir le Clarity Act pour 1 700 milliards $
+  d'actifs" : ce chiffre qualifie la société, pas son soutien.
 
 EMOJI D'OUVERTURE :
 - Commence par UN SEUL emoji thématique, pertinent et sobre. Jamais deux emojis
@@ -170,20 +192,35 @@ CORRIGÉ : 📈 L'action Google dépasse à nouveau les 4 000 milliards $ de cap
 REFUSÉ  : 📊 5,43 millions d'actions MSTR ont été vendues pour 544,5 millions $ entre le 20 et le 26 juillet.
 CORRIGÉ : 🚨 Strategy a vendu l'équivalent de 5,43 millions d'actions MSTR pour 544,5 millions $ la semaine dernière.
 
+REFUSÉ  : 🟢 La Hongrie abroge l'obligation de validation tierce pour certaines conversions crypto, supprimant les exigences de vérification d'origine des actifs. 🟢 La Banque nationale de Hongrie a accordé à CoinCash la première licence MiCA du pays le 20 juillet, couvrant la garde, le crypto-to-fiat et le crypto-to-crypto.
+CORRIGÉ : 🇭🇺 Le Parlement hongrois vote l'abrogation de son régime de validation des transactions crypto, qui imposait de certifier chaque conversion sous peine de prison et avait fait fuir de nombreux acteurs. En parallèle, CoinCash devient le premier opérateur hongrois agréé sous MiCA.
+
+REFUSÉ  : 📈 Les prix du pétrole ont augmenté de 5 % après que l'Iran a lancé une attaque surprise contre une base américaine en Jordanie.
+CORRIGÉ : 📈 Le cours du pétrole Brent augmente de 5 % après que l'Iran a lancé une attaque surprise contre une base américaine en Jordanie.
+
+REFUSÉ  : 🚨 Iran rejette la proposition d'Oman pour la gestion conjointe du détroit d'Ormuz.
+CORRIGÉ : 🚨 L'Iran rejette la proposition d'Oman pour la gestion conjointe du détroit d'Ormuz.
+
+REFUSÉ  : 📉 Les ETF Bitcoin spot américains ont enregistré 11,64 millions $ de sorties nettes le 27 juillet, le fonds IBIT de BlackRock affichant la plus forte sortie avec 8,82 millions $. 📈 Les ETF Ethereum spot ont enregistré 9,23 millions $ d'entrées nettes, BlackRock ETHA menant avec 11,75 millions $.
+CORRIGÉ : 📉 Les ETF Bitcoin spot américains ont enregistré hier 11,64 millions $ de sorties nettes, tandis que les ETF Ethereum spot ont enregistré 9,23 millions $ d'entrées nettes.
+
+REFUSÉ  : 🇺🇸 America's biggest companies annoncent reprendre les recrutements alors que la demande de main-d'œuvre augmente avec l'IA.
+CORRIGÉ : 🇺🇸 Les plus grandes sociétés américaines annoncent reprendre les recrutements alors que la demande de main-d'œuvre augmente avec l'IA.
+
+REFUSÉ  : 🏦 Franklin Templeton annonce soutenir le Clarity Act pour 1 700 milliards $ d'actifs.
+CORRIGÉ : 🏦 Le gestionnaire d'actifs Franklin Templeton annonce soutenir le Clarity Act.
+
+REFUSÉ  : 🚨 Franklin Templeton, gestionnaire d'actifs de 1,8 trillion $, demande au Sénat américain d'adopter le Clarity Act.
+CORRIGÉ : 🚨 Franklin Templeton, gestionnaire d'actifs de 1 800 milliards $, demande au Sénat américain d'adopter le Clarity Act.
+
 REFUSÉ  : 📊 Michael Saylor's Strategy n'a acheté aucun Bitcoin au cours du dernier mois.
-CORRIGÉ : ❌ Strategy n'a acheté aucun bitcoin au cours du dernier mois.
+CORRIGÉ : ❌ Strategy n'a acheté aucun Bitcoin au cours du dernier mois.
 
 REFUSÉ  : 🚨 La Federal Reserve n'est pas prévue pour réduire les taux d'intérêt lors de la réunion FOMC de cette semaine.
 CORRIGÉ : 🚨 La Réserve fédérale américaine ne devrait pas réduire les taux d'intérêt lors de la réunion FOMC de cette semaine.
 
 REFUSÉ  : 🟢 Des médiateurs progressent pour relancer les pourparlers US-Iran et restaurer un cesse-feu intérimaire.
 CORRIGÉ : 🟢 Des médiateurs progressent pour relancer les pourparlers entre les États-Unis et l'Iran et restaurer un cessez-le-feu.
-
-REFUSÉ  : 🚀 Strive annonce l'achat de 79 Bitcoin pour 5,2 millions $.
-CORRIGÉ : 🚀 Strive annonce l'achat de 79 bitcoins pour 5,2 millions $.
-
-REFUSÉ  : 🚨 Donald Trump affirme que le taux d'intérêt devrait être abaissé.
-CORRIGÉ : 🚨 Donald Trump appelle à une baisse des taux d'intérêt, réitérant sa pression sur la Réserve fédérale pour assouplir sa politique monétaire.
 """
 
 client_groq = Groq(api_key=GROQ_API_KEY)
