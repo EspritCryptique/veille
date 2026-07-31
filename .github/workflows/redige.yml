@@ -1,10 +1,8 @@
 name: Rédaction
 
-concurrency:
-  group: ${{ github.workflow }}
-  cancel-in-progress: false
-
 on:
+  schedule:
+    - cron: "*/5 * * * *"   # toutes les 5 minutes
   workflow_dispatch: {}      # lancement manuel possible
 
 jobs:
@@ -25,6 +23,7 @@ jobs:
       - name: Lancer la rédaction
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: python redige.py
