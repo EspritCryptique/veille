@@ -18,13 +18,22 @@ import requests
 from supabase import create_client
 
 # --- Secrets (fournis par GitHub) ---
-MISTRAL_API_KEY = os.environ["MISTRAL_API_KEY"]
+MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY")   # optionnel
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")         # utilisé si Mistral absent
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 
 # --- Réglages ajustables ---
-MODELE = "mistral-large-latest"            # modèle français, meilleur pour la reformulation
-URL_MISTRAL = "https://api.mistral.ai/v1/chat/completions"
+# Le fournisseur est choisi tout seul : Mistral si sa clé existe, sinon Groq.
+# Pour basculer sur Mistral, il suffit d'ajouter le secret MISTRAL_API_KEY.
+if MISTRAL_API_KEY:
+    URL_API = "https://api.mistral.ai/v1/chat/completions"
+    CLE_API = MISTRAL_API_KEY
+    MODELE = "mistral-large-latest"     # modèle français, meilleur en reformulation
+else:
+    URL_API = "https://api.groq.com/openai/v1/chat/completions"
+    CLE_API = GROQ_API_KEY
+    MODELE = "openai/gpt-oss-120b"
 CLUSTERS_PAR_PASSAGE = 10                   # nombre de drafts rédigés par passage
 MESSAGES_PAR_CLUSTER = 5                    # faits max transmis au LLM
 AGE_MAX_HEURES = 24                         # on ne rédige que pour l'actu fraîche
@@ -282,18 +291,24 @@ def rediger(faits):
         "Réponds uniquement par le texte final du post, sans raisonnement, "
         "sans préambule ni guillemets."
     )
+    corps = {
+        "model": MODELE,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.3,
+        "max_tokens": 400,
+    }
+    if not MISTRAL_API_KEY:
+        # gpt-oss "réfléchit" avant d'écrire : on limite pour garder du budget
+        corps["reasoning_effort"] = "low"
+        corps["max_tokens"] = 1024
+
     reponse = requests.post(
-        URL_MISTRAL,
+        URL_API,
         headers={
-            "Authorization": f"Bearer {MISTRAL_API_KEY}",
+            "Authorization": f"Bearer {CLE_API}",
             "Content-Type": "application/json",
         },
-        json={
-            "model": MODELE,
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.3,
-            "max_tokens": 400,
-        },
+        json=corps,
         timeout=60,
     )
     reponse.raise_for_status()
