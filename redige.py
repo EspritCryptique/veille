@@ -14,16 +14,17 @@ Anti-hallucination : le prompt interdit d'inventer chiffres et citations.
 import os
 from datetime import datetime, timedelta, timezone
 
-from groq import Groq
+import requests
 from supabase import create_client
 
 # --- Secrets (fournis par GitHub) ---
-GROQ_API_KEY = os.environ["GROQ_API_KEY"]
+MISTRAL_API_KEY = os.environ["MISTRAL_API_KEY"]
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 
 # --- Réglages ajustables ---
-MODELE_GROQ = "openai/gpt-oss-120b"        # modèle de meilleure qualité pour l'écriture
+MODELE = "mistral-large-latest"            # modèle français, meilleur pour la reformulation
+URL_MISTRAL = "https://api.mistral.ai/v1/chat/completions"
 CLUSTERS_PAR_PASSAGE = 10                   # nombre de drafts rédigés par passage
 MESSAGES_PAR_CLUSTER = 5                    # faits max transmis au LLM
 AGE_MAX_HEURES = 24                         # on ne rédige que pour l'actu fraîche
@@ -223,7 +224,34 @@ REFUSÉ  : 🟢 Des médiateurs progressent pour relancer les pourparlers US-Ira
 CORRIGÉ : 🟢 Des médiateurs progressent pour relancer les pourparlers entre les États-Unis et l'Iran et restaurer un cessez-le-feu.
 """
 
-client_groq = Groq(api_key=GROQ_API_KEY)
+# --- Mots-clés qui signalent une actualité à fort impact ---
+MOTS_FORTS = [
+    "hack", "exploit", "piratage", "sec ", "etf", "milliard", "trillion",
+    "faillite", "bankruptcy", "ban ", "interdiction", "fed", "record",
+    "all-time high", "liquidation", "approve", "approuv", "lawsuit",
+    "procès", "arrest", "fraud", "fraude", "halving", "listing",
+]
+
+
+def calculer_score(nb_sources, fiabilite_moyenne, textes, age_heures):
+    """Score d'importance de 0 à 100. 100 % déterministe, aucun coût.
+
+    Il combine quatre signaux : le nombre de sources qui relaient
+    l'information (corroboration), la fiabilité de ces sources, la
+    présence de mots-clés à fort impact, et la fraîcheur.
+    """
+    score = 25                                        # base
+    score += min(nb_sources - 1, 4) * 12              # jusqu'à +48 (corroboration)
+    score += fiabilite_moyenne * 0.15                 # jusqu'à +15
+    texte = " ".join(textes).lower()
+    score += min(sum(1 for m in MOTS_FORTS if m in texte), 3) * 5   # jusqu'à +15
+    if age_heures < 1:
+        score += 10
+    elif age_heures < 6:
+        score += 5
+    return max(0, min(int(score), 100))
+
+
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
@@ -254,17 +282,30 @@ def rediger(faits):
         "Réponds uniquement par le texte final du post, sans raisonnement, "
         "sans préambule ni guillemets."
     )
-    reponse = client_groq.chat.completions.create(
-        model=MODELE_GROQ,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.3,
-        max_tokens=1024,
-        extra_body={"reasoning_effort": "low"},  # peu de "réflexion" -> il reste du budget pour la réponse
+    reponse = requests.post(
+        URL_MISTRAL,
+        headers={
+            "Authorization": f"Bearer {MISTRAL_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": MODELE,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.3,
+            "max_tokens": 400,
+        },
+        timeout=60,
     )
-    return majuscule_initiale(reponse.choices[0].message.content.strip())
+    reponse.raise_for_status()
+    texte = reponse.json()["choices"][0]["message"]["content"].strip()
+    return majuscule_initiale(texte)
 
 
 def main():
+    # 0. Fiabilité de chaque source (pour le score)
+    sources = supabase.table("sources").select("id, fiabilite").execute().data
+    fiabilites = {s["id"]: s["fiabilite"] for s in sources}
+
     # 1. Clusters ayant déjà un brouillon Telegram (à ne pas refaire)
     drafts_existants = (
         supabase.table("drafts").select("cluster_id").eq("reseau", "telegram").execute().data
@@ -296,7 +337,7 @@ def main():
         # 3. Récupérer les faits (messages sources du cluster)
         msgs = (
             supabase.table("messages")
-            .select("contenu")
+            .select("contenu, source_id, poste_le")
             .eq("cluster_id", cid)
             .limit(MESSAGES_PAR_CLUSTER)
             .execute()
@@ -305,6 +346,22 @@ def main():
         faits = "\n\n".join((m["contenu"] or "")[:500] for m in msgs if m["contenu"])
         if not faits.strip():
             continue
+
+        # Score d'importance (déterministe) -> sert à trier les cartes
+        ids_sources = {m["source_id"] for m in msgs if m.get("source_id")}
+        moyenne = (
+            sum(fiabilites.get(i, 50) for i in ids_sources) / len(ids_sources)
+            if ids_sources else 50
+        )
+        dates = [m["poste_le"] for m in msgs if m.get("poste_le")]
+        age = 0
+        if dates:
+            plus_ancien = min(datetime.fromisoformat(d.replace("Z", "+00:00")) for d in dates)
+            age = (datetime.now(timezone.utc) - plus_ancien).total_seconds() / 3600
+        score = calculer_score(
+            len(ids_sources), moyenne, [m["contenu"] or "" for m in msgs], age
+        )
+        supabase.table("clusters").update({"importance": score}).eq("id", cid).execute()
 
         # 4. Rédiger via Groq
         try:
