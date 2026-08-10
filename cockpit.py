@@ -3,7 +3,7 @@ Cockpit Telegram — ta console de gestion des news.
 
 À chaque passage :
   1. envoie les brouillons en attente sous forme de cartes enrichies
-     (catégorie, ancienneté, sources, liens d'origine) ;
+     (catégorie, sources, liens d'origine) ;
   2. lit tes clics et tes réponses, puis agit :
        ✅ Publier     -> publie sur ta chaîne
        🔄 Reformuler  -> l'IA propose une autre version (seul bouton payant)
@@ -50,19 +50,6 @@ def maintenant():
     return datetime.now(timezone.utc)
 
 
-def anciennete(date_iso):
-    """Transforme une date en 'il y a 4 min' / 'il y a 3 h'."""
-    if not date_iso:
-        return ""
-    quand = datetime.fromisoformat(date_iso.replace("Z", "+00:00"))
-    minutes = int((maintenant() - quand).total_seconds() // 60)
-    if minutes < 60:
-        return f"il y a {max(minutes, 0)} min"
-    if minutes < 1440:
-        return f"il y a {minutes // 60} h"
-    return f"il y a {minutes // 1440} j"
-
-
 def clavier(draft_id):
     """Les boutons affichés sous chaque carte."""
     return {
@@ -101,7 +88,7 @@ def contexte_cluster(cluster_id):
 
     cl = (
         supabase.table("clusters")
-        .select("categorie, premier_vu_le")
+        .select("categorie")
         .eq("id", cluster_id)
         .execute()
         .data
@@ -117,13 +104,9 @@ def contexte_cluster(cluster_id):
     srcs = supabase.table("sources").select("id, identifiant").execute().data
     noms = {s["id"]: s["identifiant"] for s in srcs}
 
-    # En-tête : catégorie · ancienneté
-    morceaux = []
-    if cl:
-        if cl[0].get("categorie"):
-            morceaux.append(cl[0]["categorie"])
-        morceaux.append(anciennete(cl[0].get("premier_vu_le")))
-    infos["entete"] = " · ".join(m for m in morceaux if m)
+    # En-tête : catégorie
+    if cl and cl[0].get("categorie"):
+        infos["entete"] = cl[0]["categorie"]
 
     # Sources distinctes + liens vers les messages d'origine
     vues, liens = [], []
