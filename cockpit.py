@@ -6,13 +6,14 @@ Cockpit Telegram — ta console de gestion des news.
      (catégorie, ancienneté, sources, liens d'origine) ;
   2. lit tes clics et tes réponses, puis agit :
        ✅ Publier     -> publie sur ta chaîne
-       ✏️ Reformuler  -> redemande un texte au modèle (seul bouton payant)
+       🔄 Reformuler  -> l'IA propose une autre version (seul bouton payant)
+       ✏️ Modifier    -> te demande ton texte, puis met la carte à jour
        ❌ Rejeter     -> écarte le brouillon
        ⏸️ Différer    -> le représente plus tard
-       (répondre au message = corriger le texte à la main)
+       (tu peux aussi répondre directement à la carte pour la corriger)
 
 Les cartes sont envoyées de la plus récente à la plus ancienne.
-Tout est déterministe sauf "Reformuler", qui appelle le modèle.
+Tout est déterministe sauf "Reformuler", qui appelle le modèle à la demande.
 """
 
 import os
@@ -69,10 +70,13 @@ def clavier(draft_id):
         "inline_keyboard": [
             [
                 {"text": "✅ Publier", "callback_data": f"ok:{draft_id}"},
-                {"text": "✏️ Reformuler", "callback_data": f"redo:{draft_id}"},
+                {"text": "🔄 Reformuler", "callback_data": f"redo:{draft_id}"},
             ],
             [
+                {"text": "✏️ Modifier", "callback_data": f"edit:{draft_id}"},
                 {"text": "❌ Rejeter", "callback_data": f"no:{draft_id}"},
+            ],
+            [
                 {"text": "⏸️ Différer", "callback_data": f"wait:{draft_id}"},
             ],
         ]
@@ -208,7 +212,7 @@ def rafraichir_cartes():
 
     Le dossier est "vivant" : si une nouvelle chaîne relaie la même actualité,
     la carte se met à jour toute seule. On ne touche PAS au texte du post,
-    pour ne pas écraser tes corrections : utilise "Reformuler" pour cela.
+    pour ne pas écraser tes corrections : utilise "Modifier" pour cela.
     """
     envoyes = (
         supabase.table("drafts")
@@ -281,29 +285,61 @@ def traiter_clic(cb):
         telegram("answerCallbackQuery", callback_query_id=cb["id"], text="Déjà traité.")
         return
 
-    # --- Reformuler : on garde la carte active, on remplace juste le texte ---
+    # --- Reformuler : l'IA propose une nouvelle version à partir des mêmes faits ---
     if action == "redo":
         ctx = contexte_cluster(draft["cluster_id"])
-        try:
-            nouveau = rediger(ctx["faits"])
-        except Exception as e:
+        if not ctx["faits"].strip():
             telegram("answerCallbackQuery", callback_query_id=cb["id"],
-                     text="Reformulation indisponible, réessaie.")
+                     text="Aucun fait source disponible.", show_alert=True)
+            return
+        try:
+            propose = rediger(ctx["faits"])
+        except Exception as e:
+            # On affiche l'erreur directement dans Telegram, pas seulement dans les logs
+            telegram("answerCallbackQuery", callback_query_id=cb["id"],
+                     text=f"Reformulation impossible : {str(e)[:150]}", show_alert=True)
             print(f"  Reformulation échouée : {e}")
             return
+        if not propose.strip():
+            telegram("answerCallbackQuery", callback_query_id=cb["id"],
+                     text="Le modèle n'a rien renvoyé, réessaie.", show_alert=True)
+            return
+
         supabase.table("drafts").update(
-            {"contenu": nouveau, "maj_le": maintenant().isoformat()}
+            {"contenu": propose, "maj_le": maintenant().isoformat()}
         ).eq("id", draft_id).execute()
-        draft["contenu"] = nouveau
+        draft["contenu"] = propose
         telegram(
             "editMessageText",
             chat_id=chat,
             message_id=message_id,
-            text=construire_carte(draft),
+            text=construire_carte(draft, entete_resultat="🔄 Reformulé par l'IA"),
             reply_markup=clavier(draft_id),
             disable_web_page_preview=True,
         )
-        telegram("answerCallbackQuery", callback_query_id=cb["id"], text="Reformulé.")
+        telegram("answerCallbackQuery", callback_query_id=cb["id"], text="Nouvelle version.")
+        return
+
+    # --- Modifier : on te demande ton texte, la carte reste active ---
+    if action == "edit":
+        rep = telegram(
+            "sendMessage",
+            chat_id=chat,
+            text="✏️ Envoie ton texte corrigé en réponse à ce message.",
+            reply_markup={
+                "force_reply": True,
+                "input_field_placeholder": "Ton texte corrigé",
+            },
+        )
+        if rep.get("ok"):
+            # On retient ce message : ta réponse permettra de retrouver le brouillon
+            supabase.table("drafts").update(
+                {"prompt_message_id": rep["result"]["message_id"]}
+            ).eq("id", draft_id).execute()
+            note = "À toi d'écrire."
+        else:
+            note = "Impossible d'ouvrir la saisie."
+        telegram("answerCallbackQuery", callback_query_id=cb["id"], text=note)
         return
 
     # --- Les trois actions qui closent la carte ---
@@ -339,30 +375,44 @@ def traiter_reponse(msg):
     if not nouveau_texte:
         return
 
+    # Ta réponse peut viser la carte elle-même, ou la demande de texte
+    champs = "id, cluster_id, message_id"
     res = (
-        supabase.table("drafts")
-        .select("id, cluster_id")
-        .eq("message_id", original)
-        .eq("statut", "en_attente")
-        .execute()
-        .data
+        supabase.table("drafts").select(champs)
+        .eq("message_id", original).eq("statut", "en_attente").execute().data
     )
     if not res:
+        res = (
+            supabase.table("drafts").select(champs)
+            .eq("prompt_message_id", original).eq("statut", "en_attente").execute().data
+        )
+    if not res:
         return
-    draft = {"id": res[0]["id"], "cluster_id": res[0]["cluster_id"], "contenu": nouveau_texte}
+
+    draft = {
+        "id": res[0]["id"],
+        "cluster_id": res[0]["cluster_id"],
+        "contenu": nouveau_texte,
+    }
+    carte_id = res[0]["message_id"]
 
     supabase.table("drafts").update(
         {"contenu": nouveau_texte, "maj_le": maintenant().isoformat()}
     ).eq("id", draft["id"]).execute()
 
+    # On met à jour la carte (et non le message de demande)
     telegram(
         "editMessageText",
         chat_id=msg["chat"]["id"],
-        message_id=original,
-        text=construire_carte(draft, entete_resultat="✏️ Corrigé"),
+        message_id=carte_id,
+        text=construire_carte(draft, entete_resultat="✏️ Modifié"),
         reply_markup=clavier(draft["id"]),
         disable_web_page_preview=True,
     )
+
+    # On efface la demande de texte pour garder la conversation propre
+    if original != carte_id:
+        telegram("deleteMessage", chat_id=msg["chat"]["id"], message_id=original)
 
 
 def lire_actions():
