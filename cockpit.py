@@ -1,452 +1,355 @@
 """
-Cockpit Telegram — ta console de gestion des news.
+Rédaction des drafts — transforme un cluster en post Telegram.
 
 À chaque passage :
-  1. envoie les brouillons en attente sous forme de cartes enrichies
-     (catégorie, ancienneté, sources, liens d'origine) ;
-  2. lit tes clics et tes réponses, puis agit :
-       ✅ Publier     -> publie sur ta chaîne
-       🔄 Reformuler  -> l'IA propose une autre version (seul bouton payant)
-       ✏️ Modifier    -> te demande ton texte, puis met la carte à jour
-       ❌ Rejeter     -> écarte le brouillon
-       ⏸️ Différer    -> le représente plus tard
-       (tu peux aussi répondre directement à la carte pour la corriger)
+  1. il prend les clusters qui n'ont pas encore de brouillon Telegram ;
+  2. il lit leurs messages sources (les FAITS) ;
+  3. il demande à Groq de rédiger un post en français, selon la charte ;
+  4. il enregistre le brouillon dans la table 'drafts' (statut 'en_attente').
 
-Les cartes sont envoyées de la plus récente à la plus ancienne.
-Tout est déterministe sauf "Reformuler", qui appelle le modèle à la demande.
+Seule la rédaction (étape 3) utilise le LLM. Le reste est déterministe.
+Anti-hallucination : le prompt interdit d'inventer chiffres et citations.
 """
 
 import os
-import requests
 from datetime import datetime, timedelta, timezone
 
+import requests
 from supabase import create_client
 
-# On réutilise la fonction de rédaction (et donc TA charte) de redige.py
-from redige import rediger
-
 # --- Secrets (fournis par GitHub) ---
-BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]        # toi : où arrivent les cartes
-CHANNEL = os.environ["TELEGRAM_CHANNEL"]        # ta chaîne : où sont publiés les posts
+MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY")   # optionnel
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")         # utilisé si Mistral absent
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 
 # --- Réglages ajustables ---
-CARTES_PAR_PASSAGE = 5        # nb de cartes envoyées par passage
-HEURES_AVANT_RAPPEL = 6       # un brouillon différé revient après ce délai
-AGE_MAX_HEURES = 24           # au-delà, un brouillon non traité est périmé
+# Le fournisseur est choisi tout seul : Mistral si sa clé existe, sinon Groq.
+# Pour basculer sur Mistral, il suffit d'ajouter le secret MISTRAL_API_KEY.
+if MISTRAL_API_KEY:
+    URL_API = "https://api.mistral.ai/v1/chat/completions"
+    CLE_API = MISTRAL_API_KEY
+    MODELE = "mistral-large-latest"     # modèle français, meilleur en reformulation
+else:
+    URL_API = "https://api.groq.com/openai/v1/chat/completions"
+    CLE_API = GROQ_API_KEY
+    MODELE = "openai/gpt-oss-120b"
+CLUSTERS_PAR_PASSAGE = 10                   # nombre de drafts rédigés par passage
+MESSAGES_PAR_CLUSTER = 5                    # faits max transmis au LLM
+AGE_MAX_HEURES = 24                         # on ne rédige que pour l'actu fraîche
 
-API = f"https://api.telegram.org/bot{BOT_TOKEN}"
+# --- CHARTE ÉDITORIALE : c'est ici que vit TON style. Modifie librement. ---
+CHARTE_EDITORIALE = """
+Tu écris un post pour la chaîne Telegram d'un média crypto francophone.
+
+OBJECTIF : transmettre l'information principale de façon complète, mais la plus
+claire et concise possible.
+
+PRINCIPE CARDINAL — REFORMULE, NE TRADUIS PAS :
+Les faits te sont fournis en anglais. Ne les traduis JAMAIS mot à mot.
+Lis-les, comprends l'information, puis RÉÉCRIS-LA de zéro comme un journaliste
+français l'écrirait spontanément. Le résultat doit se lire comme un texte pensé
+en français, jamais comme une traduction.
+Si une tournure te semble calquée sur l'anglais, réécris-la autrement.
+Aucun mot ni segment ne doit rester en anglais, hormis les noms propres et les
+anglicismes courants du vocabulaire crypto.
+
+LONGUEUR ET STRUCTURE :
+- Produis UN SEUL post, d'un seul tenant. N'écris JAMAIS deux blocs à la suite,
+  et n'emploie qu'UN SEUL emoji dans tout le message, en première position.
+- Si les faits couvrent plusieurs aspects d'un même événement, fais-en UNE
+  SYNTHÈSE dans une phrase unique. Ne les juxtapose pas.
+- ÉLAGUE les détails secondaires. Garde ce qui compte, supprime le reste
+  (sous-totaux par fonds, noms de filiales, précisions techniques accessoires).
+- Vise UNE seule phrase courte si l'essentiel peut être dit ainsi.
+- Passe à DEUX phrases seulement si l'information doit être complétée ou précisée.
+  Jamais plus de deux phrases, et toujours moins de 280 caractères au total.
+- Termine toujours chaque phrase par un point.
+- Écris à la VOIX ACTIVE, avec l'acteur en sujet quand il y en a un.
+  Écris "Strategy annonce un rachat de 25 millions $ de ses actions", jamais
+  "25 millions $ de rachat d'actions a été déclaré par Strategy".
+  Écris "Les ETF Bitcoin spot américains ont enregistré 33,79 millions $ d'entrées
+  nettes", jamais "33,79 millions $ d'entrées nettes ont afflué dans les ETF".
+- Place le chiffre en tête de phrase UNIQUEMENT s'il n'y a pas d'acteur identifiable
+  (ex. "100 millions $ de positions shorts ont été liquidées").
+
+TON ET LANGUE :
+- Ton neutre et journalistique : aucun commentaire, aucune opinion.
+- Phrases courtes et factuelles. Conserve les chiffres précis des faits.
+- Choisis toujours le verbe et la tournure les plus naturels et concis en français.
+  Écris "dominer" plutôt que "prendre la tête de".
+- Mets l'article devant les noms de pays : "L'Iran rejette", jamais "Iran rejette".
+  Quand l'information concerne un pays précis, son drapeau est un bon emoji.
+- Nomme les personnalités par leur prénom ET leur nom, SANS titre honorifique.
+  Écris "Donald Trump", jamais "le président Donald Trump" ni "Trump" seul.
+- PRÉCISE LA NATURE de l'entité quand le nom seul serait ambigu :
+  "L'exchange BitMart", "L'action Google", "Le cours du pétrole Brent".
+- Supprime les tickers boursiers accolés au nom d'une société.
+  Écris "L'action SpaceX", jamais "SpaceX $SPCX" ni "Google $GOOGL".
+- N'emploie JAMAIS le possessif anglais en 's. Garde le nom seul, ou tourne
+  la phrase en français. Écris "Strategy", jamais "Michael Saylor's Strategy".
+- Évite les calques de l'anglais : préfère la tournure française naturelle.
+  Écris "ne devrait pas réduire", jamais "n'est pas prévue pour réduire".
+- N'abrège pas les noms de pays. Écris "entre les États-Unis et l'Iran",
+  jamais "pourparlers US-Iran".
+- Préfère une période relative à une date brute quand le fait est récent :
+  "la semaine dernière" plutôt que "entre le 20 et le 26 juillet".
+- Soigne l'orthographe française : "cessez-le-feu", "actions préférentielles".
+- Si l'information n'est pas confirmée à 100 %, emploie le conditionnel.
+
+TEMPS :
+- Emploie le PRÉSENT de narration quand l'événement se produit ou s'annonce
+  maintenant (ex. "La plateforme lance un produit") : plus vivant, "en direct".
+- Mais emploie le PASSÉ COMPOSÉ quand le fait s'inscrit dans une fenêtre de temps
+  révolue (ex. "dans les 60 dernières minutes", "hier", "la semaine dernière").
+
+NOMS PROPRES ET ANGLICISMES (règle stricte) :
+- Ne traduis JAMAIS le nom d'une loi, d'une entreprise ou d'un produit.
+  Écris "le Clarity Act", jamais "l'acte Clarity".
+- MAIS emploie le nom français d'usage des institutions quand il existe.
+  Écris "la Réserve fédérale américaine" pour "the Federal Reserve",
+  "le Département de la Justice américain" pour "the Department of Justice".
+- N'emploie jamais de pluriel anglais : écris "les ETF", jamais "les ETFs".
+- Mets la préposition devant les unités : "8 millions d'ETH", pas "8 millions ETH".
+- Conserve les anglicismes courants du vocabulaire crypto et finance :
+  short, long, staking, airdrop, trading, spot, hack, stablecoin, token...
+  Écris "positions shorts", jamais "positions courtes".
+- Ne traduis QUE les anglicismes rares, par le mot français le plus adapté
+  (traduction par le sens, non littérale).
+- N'explique un terme QUE s'il est rare et incompréhensible pour un non-initié.
+  N'explique jamais les termes courants. N'en abuse pas.
+- Ajoute un court élément de contexte UNIQUEMENT si un lecteur qui n'a pas suivi
+  l'affaire ne pourrait pas comprendre. Reste sobre, sans en abuser.
+
+CHIFFRES (règle stricte) :
+- Écris les grands nombres avec l'unité en toutes lettres, format "13 millions $"
+  ou "1 300 milliards $" (espace comme séparateur de milliers, symbole $ à la fin).
+- N'utilise JAMAIS d'abréviation type "13 $M", ni les mots "trillion"/"trilliard" :
+  exprime toujours en millions ou en milliards (1 300 milliards $, pas 1,3 trilliard).
+- ATTENTION AU FAUX-AMI : "trillion" et "billion" anglais valent 1 000 milliards.
+  Écris "4 000 milliards $" pour "4 trillion $", et "1 800 milliards $" pour
+  "1,8 trillion $". N'emploie jamais les mots "trillion" ni "billion" en français.
+- Si un chiffre ne s'articule pas naturellement dans la phrase, OMETS-LE plutôt
+  que de le recoller de force. Mieux vaut un post juste sans le chiffre qu'une
+  phrase absurde. N'écris jamais "soutenir le Clarity Act pour 1 700 milliards $
+  d'actifs" : ce chiffre qualifie la société, pas son soutien.
+
+EMOJI D'OUVERTURE :
+- Commence par UN SEUL emoji thématique, pertinent et sobre. Jamais deux emojis
+  côte à côte (pas de "📈 🇺🇸"). Évite les emojis exotiques et la répétition.
+  N'emploie "🚀" qu'avec beaucoup de modération.
+- Le premier mot après l'emoji prend toujours une MAJUSCULE.
+- Grille indicative selon le sujet :
+  🚨 news importante / breaking      🔴 alerte ou marché baissier
+  📊 données      📈 ou 🟢 marché haussier      📉 ou 🩸 marché baissier
+  💬 ou 🎙️ citation      🏦 banque, institution, finance      🇺🇸 (drapeaux) pays
+  💵 ou 💰 ou 💸 argent, dollar, stablecoins      📆 date historique      🔐 sécurité
+  ⛓️ ou 🔗 blockchain      👮 ou 🕵️ ou 🚔 enquête, arrestation      🤔 news qui questionne
+  👀 insolite, intrigant      👨‍⚖️ ou ⚖️ justice      🖼️ ou 🙈 NFT      🗞️ ou 📰 actualité      ⛏️ minage
+  ❌ non-événement, absence d'action, démenti (ex. "n'a acheté aucun Bitcoin")
+
+SOURCE :
+- Cite une source UNIQUEMENT si c'est une source d'autorité (ex. Bloomberg, Reuters,
+  Département de la Justice américain, SEC) apportant une vraie valeur. Dans ce cas
+  seulement, termine par "selon [Nom de la source]". Sinon, aucune source.
+
+INTERDIT :
+- Pas de hashtags, pas de question rhétorique, pas d'appel à l'engagement.
+- Pas de parenthèses, pas de deux-points, pas de tiret long.
+"""
+
+# --- EXEMPLES : le modèle imite ces modèles. Ajoutes-en quand un rendu te déplaît. ---
+EXEMPLES = """
+Voici des exemples de rendu attendu. Imite exactement ce style.
+
+FAITS : $100,000,000 worth of crypto shorts liquidated in the past 60 minutes.
+POST : 📉 100 millions $ de positions shorts sur le marché crypto ont été liquidées dans les 60 dernières minutes.
+
+FAITS : President Trump is urging the U.S. Senate to pass the CLARITY Act, warning that China could otherwise take the lead in digital finance and AI.
+POST : 🚨 Donald Trump demande au Sénat américain d'adopter le Clarity Act, alertant sur le fait que la Chine pourrait dominer la finance numérique et l'IA.
+"""
+
+# --- CORRECTIONS : mauvais rendus déjà observés et leur version corrigée.
+#     Ajoute une paire ici chaque fois qu'un rendu te déplaît. ---
+CORRECTIONS = """
+Voici des rendus qui ont été REFUSÉS et leur version CORRIGÉE. Ne reproduis
+jamais les erreurs de la colonne refusée.
+
+REFUSÉ  : 📉 le S&P 500 efface tous ses gains et devient négatif.
+CORRIGÉ : 📉 Le S&P 500 efface tous ses gains du jour et passe dans le négatif.
+
+REFUSÉ  : 🏦 25 millions $ de rachat d'actions STRC a été déclaré par Strategy.
+CORRIGÉ : 🏦 Strategy annonce avoir effectué un rachat de 25 millions $ de ses actions préférentielles STRC.
+
+REFUSÉ  : 📈 🇺🇸 33,79 millions $ d'encours nets ont afflué dans les Bitcoin Spot ETFs la semaine dernière.
+CORRIGÉ : 📈 Les ETF Bitcoin spot américains ont enregistré 33,79 millions $ d'entrées nettes la semaine dernière.
+
+REFUSÉ  : 🚨 BitMart ne proposera plus de services de trading d'ici quelques heures.
+CORRIGÉ : 🚨 L'exchange BitMart ne proposera plus de services de trading d'ici quelques heures.
+
+REFUSÉ  : 🔥 Brent Crude a gagné 63 % en six mois.
+CORRIGÉ : 🔥 Le cours du pétrole Brent a augmenté de 63 % en six mois.
+
+REFUSÉ  : 🟢 Lido a lancé la migration de plus de 8 millions ETH vers son module Curated v2.
+CORRIGÉ : 🟢 Lido lance la migration de plus de 8 millions d'ETH vers son module Curated v2.
+
+REFUSÉ  : 📉 SpaceX $SPCX atteint un nouveau plus bas historique à 110 $.
+CORRIGÉ : 📉 L'action SpaceX atteint un nouveau plus bas historique à 110 $.
+
+REFUSÉ  : 📈 Google $GOOGL dépasse à nouveau les 4 billions $ de capitalisation boursière.
+CORRIGÉ : 📈 L'action Google dépasse à nouveau les 4 000 milliards $ de capitalisation boursière.
+
+REFUSÉ  : 📊 5,43 millions d'actions MSTR ont été vendues pour 544,5 millions $ entre le 20 et le 26 juillet.
+CORRIGÉ : 🚨 Strategy a vendu l'équivalent de 5,43 millions d'actions MSTR pour 544,5 millions $ la semaine dernière.
+
+REFUSÉ  : 🟢 La Hongrie abroge l'obligation de validation tierce pour certaines conversions crypto, supprimant les exigences de vérification d'origine des actifs. 🟢 La Banque nationale de Hongrie a accordé à CoinCash la première licence MiCA du pays le 20 juillet, couvrant la garde, le crypto-to-fiat et le crypto-to-crypto.
+CORRIGÉ : 🇭🇺 Le Parlement hongrois vote l'abrogation de son régime de validation des transactions crypto, qui imposait de certifier chaque conversion sous peine de prison et avait fait fuir de nombreux acteurs. En parallèle, CoinCash devient le premier opérateur hongrois agréé sous MiCA.
+
+REFUSÉ  : 📈 Les prix du pétrole ont augmenté de 5 % après que l'Iran a lancé une attaque surprise contre une base américaine en Jordanie.
+CORRIGÉ : 📈 Le cours du pétrole Brent augmente de 5 % après que l'Iran a lancé une attaque surprise contre une base américaine en Jordanie.
+
+REFUSÉ  : 🚨 Iran rejette la proposition d'Oman pour la gestion conjointe du détroit d'Ormuz.
+CORRIGÉ : 🚨 L'Iran rejette la proposition d'Oman pour la gestion conjointe du détroit d'Ormuz.
+
+REFUSÉ  : 📉 Les ETF Bitcoin spot américains ont enregistré 11,64 millions $ de sorties nettes le 27 juillet, le fonds IBIT de BlackRock affichant la plus forte sortie avec 8,82 millions $. 📈 Les ETF Ethereum spot ont enregistré 9,23 millions $ d'entrées nettes, BlackRock ETHA menant avec 11,75 millions $.
+CORRIGÉ : 📉 Les ETF Bitcoin spot américains ont enregistré hier 11,64 millions $ de sorties nettes, tandis que les ETF Ethereum spot ont enregistré 9,23 millions $ d'entrées nettes.
+
+REFUSÉ  : 🇺🇸 America's biggest companies annoncent reprendre les recrutements alors que la demande de main-d'œuvre augmente avec l'IA.
+CORRIGÉ : 🇺🇸 Les plus grandes sociétés américaines annoncent reprendre les recrutements alors que la demande de main-d'œuvre augmente avec l'IA.
+
+REFUSÉ  : 🏦 Franklin Templeton annonce soutenir le Clarity Act pour 1 700 milliards $ d'actifs.
+CORRIGÉ : 🏦 Le gestionnaire d'actifs Franklin Templeton annonce soutenir le Clarity Act.
+
+REFUSÉ  : 🚨 Franklin Templeton, gestionnaire d'actifs de 1,8 trillion $, demande au Sénat américain d'adopter le Clarity Act.
+CORRIGÉ : 🚨 Franklin Templeton, gestionnaire d'actifs de 1 800 milliards $, demande au Sénat américain d'adopter le Clarity Act.
+
+REFUSÉ  : 📊 Michael Saylor's Strategy n'a acheté aucun Bitcoin au cours du dernier mois.
+CORRIGÉ : ❌ Strategy n'a acheté aucun Bitcoin au cours du dernier mois.
+
+REFUSÉ  : 🚨 La Federal Reserve n'est pas prévue pour réduire les taux d'intérêt lors de la réunion FOMC de cette semaine.
+CORRIGÉ : 🚨 La Réserve fédérale américaine ne devrait pas réduire les taux d'intérêt lors de la réunion FOMC de cette semaine.
+
+REFUSÉ  : 🟢 Des médiateurs progressent pour relancer les pourparlers US-Iran et restaurer un cesse-feu intérimaire.
+CORRIGÉ : 🟢 Des médiateurs progressent pour relancer les pourparlers entre les États-Unis et l'Iran et restaurer un cessez-le-feu.
+"""
+
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
-def telegram(methode, **params):
-    """Appelle l'API Telegram et renvoie la réponse."""
-    r = requests.post(f"{API}/{methode}", json=params, timeout=30)
-    return r.json()
-
-
 def maintenant():
-    return datetime.now(timezone.utc)
+    return datetime.now(timezone.utc).isoformat()
 
 
-def anciennete(date_iso):
-    """Transforme une date en 'il y a 4 min' / 'il y a 3 h'."""
-    if not date_iso:
-        return ""
-    quand = datetime.fromisoformat(date_iso.replace("Z", "+00:00"))
-    minutes = int((maintenant() - quand).total_seconds() // 60)
-    if minutes < 60:
-        return f"il y a {max(minutes, 0)} min"
-    if minutes < 1440:
-        return f"il y a {minutes // 60} h"
-    return f"il y a {minutes // 1440} j"
+def majuscule_initiale(texte):
+    """Met une majuscule au premier mot, même s'il est précédé d'un emoji.
+    Correction déterministe : garantie à 100 %, sans dépendre du modèle."""
+    for i, caractere in enumerate(texte):
+        if caractere.isalpha():
+            return texte[:i] + caractere.upper() + texte[i + 1:]
+    return texte
 
 
-def clavier(draft_id):
-    """Les boutons affichés sous chaque carte."""
-    return {
-        "inline_keyboard": [
-            [
-                {"text": "✅ Publier", "callback_data": f"ok:{draft_id}"},
-                {"text": "🔄 Reformuler", "callback_data": f"redo:{draft_id}"},
-            ],
-            [
-                {"text": "✏️ Modifier", "callback_data": f"edit:{draft_id}"},
-                {"text": "❌ Rejeter", "callback_data": f"no:{draft_id}"},
-            ],
-            [
-                {"text": "⏸️ Différer", "callback_data": f"wait:{draft_id}"},
-            ],
-        ]
+def rediger(faits):
+    """Demande à Groq de rédiger un post Telegram selon la charte."""
+    prompt = (
+        f"{CHARTE_EDITORIALE}\n"
+        f"{EXEMPLES}\n"
+        f"{CORRECTIONS}\n"
+        "RÈGLE ABSOLUE : utilise UNIQUEMENT les faits ci-dessous. N'invente "
+        "aucun chiffre, aucune citation, aucune date, aucun détail. Si une "
+        "information manque, ne la mentionne pas.\n\n"
+        "Voici les faits :\n\n"
+        f"{faits}\n\n"
+        "Réponds uniquement par le texte final du post, sans raisonnement, "
+        "sans préambule ni guillemets."
+    )
+    corps = {
+        "model": MODELE,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.3,
+        "max_tokens": 400,
     }
+    if not MISTRAL_API_KEY:
+        # gpt-oss "réfléchit" avant d'écrire : on limite pour garder du budget
+        corps["reasoning_effort"] = "low"
+        corps["max_tokens"] = 1024
 
-
-def contexte_cluster(cluster_id):
-    """Rassemble tout ce qui aide à décider : contexte, sources, liens."""
-    infos = {"entete": "", "sources": "", "liens": [], "faits": "", "nb_sources": 0}
-
-    cl = (
-        supabase.table("clusters")
-        .select("categorie, premier_vu_le")
-        .eq("id", cluster_id)
-        .execute()
-        .data
+    reponse = requests.post(
+        URL_API,
+        headers={
+            "Authorization": f"Bearer {CLE_API}",
+            "Content-Type": "application/json",
+        },
+        json=corps,
+        timeout=60,
     )
-    msgs = (
-        supabase.table("messages")
-        .select("contenu, source_id, externe_id, poste_le")
-        .eq("cluster_id", cluster_id)
-        .limit(10)
-        .execute()
-        .data
-    )
-    srcs = supabase.table("sources").select("id, identifiant").execute().data
-    noms = {s["id"]: s["identifiant"] for s in srcs}
-
-    # En-tête : catégorie · ancienneté
-    morceaux = []
-    if cl:
-        if cl[0].get("categorie"):
-            morceaux.append(cl[0]["categorie"])
-        morceaux.append(anciennete(cl[0].get("premier_vu_le")))
-    infos["entete"] = " · ".join(m for m in morceaux if m)
-
-    # Sources distinctes + liens vers les messages d'origine
-    vues, liens = [], []
-    for m in msgs:
-        nom = noms.get(m.get("source_id"))
-        if nom and nom not in vues:
-            vues.append(nom)
-        if nom and m.get("externe_id"):
-            liens.append(f"https://t.me/{nom.lstrip('@')}/{m['externe_id']}")
-    infos["nb_sources"] = len(vues)
-    if vues:
-        infos["sources"] = f"📎 {len(vues)} source(s) : " + ", ".join(vues)
-    infos["liens"] = liens[:3]
-
-    infos["faits"] = "\n\n".join((m["contenu"] or "")[:500] for m in msgs[:5] if m["contenu"])
-    return infos
-
-
-def construire_carte(draft, entete_resultat=""):
-    """Assemble le texte complet de la carte."""
-    ctx = contexte_cluster(draft["cluster_id"])
-    lignes = []
-    if entete_resultat:
-        lignes.append(entete_resultat)
-    if ctx["entete"]:
-        lignes.append(f"📊 {ctx['entete']}")
-    lignes.append("")
-    lignes.append(draft["contenu"])
-    lignes.append("")
-    if ctx["sources"]:
-        lignes.append(ctx["sources"])
-    for lien in ctx["liens"]:
-        lignes.append(f"🔗 {lien}")
-    if not entete_resultat:
-        lignes.append("")
-        lignes.append("— Réponds à ce message pour corriger le texte.")
-    return "\n".join(lignes)
-
-
-def lire_offset():
-    res = supabase.table("etat").select("valeur").eq("cle", "offset").execute().data
-    return int(res[0]["valeur"]) if res else 0
-
-
-def ecrire_offset(valeur):
-    supabase.table("etat").upsert({"cle": "offset", "valeur": str(valeur)}).execute()
-
-
-# ---------------------------------------------------------------- 1. ENVOI
-
-def envoyer_cartes():
-    """Envoie les brouillons en attente, les plus récents d'abord."""
-    limite = (maintenant() - timedelta(hours=HEURES_AVANT_RAPPEL)).isoformat()
-    supabase.table("drafts").update(
-        {"statut": "en_attente", "message_id": None}
-    ).eq("statut", "differe").lt("maj_le", limite).execute()
-
-    perime = (maintenant() - timedelta(hours=AGE_MAX_HEURES)).isoformat()
-    supabase.table("drafts").update({"statut": "perime"}).eq(
-        "statut", "en_attente"
-    ).filter("message_id", "is", "null").lt("cree_le", perime).execute()
-
-    candidats = (
-        supabase.table("drafts")
-        .select("id, contenu, cluster_id")
-        .eq("statut", "en_attente")
-        .filter("message_id", "is", "null")
-        .order("cree_le", desc=True)
-        .limit(30)
-        .execute()
-        .data
-    )
-    if not candidats:
-        return 0
-
-    envoyees = 0
-    for d in candidats[:CARTES_PAR_PASSAGE]:
-        rep = telegram(
-            "sendMessage",
-            chat_id=CHAT_ID,
-            text=construire_carte(d),
-            reply_markup=clavier(d["id"]),
-            disable_web_page_preview=True,
-        )
-        if rep.get("ok"):
-            supabase.table("drafts").update({
-                "message_id": rep["result"]["message_id"],
-                "nb_sources": contexte_cluster(d["cluster_id"])["nb_sources"],
-            }).eq("id", d["id"]).execute()
-            envoyees += 1
-        else:
-            print(f"  Envoi impossible : {rep}")
-    return envoyees
-
-
-def rafraichir_cartes():
-    """Met à jour les cartes déjà envoyées quand une source s'ajoute au dossier.
-
-    Le dossier est "vivant" : si une nouvelle chaîne relaie la même actualité,
-    la carte se met à jour toute seule. On ne touche PAS au texte du post,
-    pour ne pas écraser tes corrections : utilise "Modifier" pour cela.
-    """
-    envoyes = (
-        supabase.table("drafts")
-        .select("id, contenu, cluster_id, message_id, nb_sources")
-        .eq("statut", "en_attente")
-        .filter("message_id", "not.is", "null")
-        .limit(30)
-        .execute()
-        .data
-    )
-
-    majs = 0
-    for d in envoyes:
-        actuel = contexte_cluster(d["cluster_id"])["nb_sources"]
-        if actuel == (d.get("nb_sources") or 0):
-            continue  # rien de neuf : on ne modifie pas le message
-        rep = telegram(
-            "editMessageText",
-            chat_id=CHAT_ID,
-            message_id=d["message_id"],
-            text=construire_carte(d),
-            reply_markup=clavier(d["id"]),
-            disable_web_page_preview=True,
-        )
-        if rep.get("ok"):
-            supabase.table("drafts").update(
-                {"nb_sources": actuel}
-            ).eq("id", d["id"]).execute()
-            majs += 1
-    return majs
-
-
-# ------------------------------------------------------- 2. LECTURE DES CLICS
-
-def publier(draft):
-    """Publie le brouillon sur la chaîne, puis enregistre la publication."""
-    rep = telegram("sendMessage", chat_id=CHANNEL, text=draft["contenu"])
-    if not rep.get("ok"):
-        return False, rep
-    supabase.table("drafts").update(
-        {"statut": "publie", "maj_le": maintenant().isoformat()}
-    ).eq("id", draft["id"]).execute()
-    supabase.table("publications").insert({
-        "draft_id": draft["id"],
-        "reseau": "telegram",
-        "post_externe_id": str(rep["result"]["message_id"]),
-    }).execute()
-    return True, rep
-
-
-def traiter_clic(cb):
-    """Traite un appui sur un bouton."""
-    action, draft_id = cb["data"].split(":", 1)
-    message_id = cb["message"]["message_id"]
-    chat = cb["message"]["chat"]["id"]
-
-    res = (
-        supabase.table("drafts")
-        .select("id, contenu, statut, cluster_id")
-        .eq("id", draft_id)
-        .execute()
-        .data
-    )
-    if not res:
-        telegram("answerCallbackQuery", callback_query_id=cb["id"], text="Brouillon introuvable.")
-        return
-    draft = res[0]
-
-    if draft["statut"] != "en_attente":
-        telegram("answerCallbackQuery", callback_query_id=cb["id"], text="Déjà traité.")
-        return
-
-    # --- Reformuler : l'IA propose une nouvelle version à partir des mêmes faits ---
-    if action == "redo":
-        ctx = contexte_cluster(draft["cluster_id"])
-        if not ctx["faits"].strip():
-            telegram("answerCallbackQuery", callback_query_id=cb["id"],
-                     text="Aucun fait source disponible.", show_alert=True)
-            return
-        try:
-            propose = rediger(ctx["faits"])
-        except Exception as e:
-            # On affiche l'erreur directement dans Telegram, pas seulement dans les logs
-            telegram("answerCallbackQuery", callback_query_id=cb["id"],
-                     text=f"Reformulation impossible : {str(e)[:150]}", show_alert=True)
-            print(f"  Reformulation échouée : {e}")
-            return
-        if not propose.strip():
-            telegram("answerCallbackQuery", callback_query_id=cb["id"],
-                     text="Le modèle n'a rien renvoyé, réessaie.", show_alert=True)
-            return
-
-        supabase.table("drafts").update(
-            {"contenu": propose, "maj_le": maintenant().isoformat()}
-        ).eq("id", draft_id).execute()
-        draft["contenu"] = propose
-        telegram(
-            "editMessageText",
-            chat_id=chat,
-            message_id=message_id,
-            text=construire_carte(draft, entete_resultat="🔄 Reformulé par l'IA"),
-            reply_markup=clavier(draft_id),
-            disable_web_page_preview=True,
-        )
-        telegram("answerCallbackQuery", callback_query_id=cb["id"], text="Nouvelle version.")
-        return
-
-    # --- Modifier : on te demande ton texte, la carte reste active ---
-    if action == "edit":
-        rep = telegram(
-            "sendMessage",
-            chat_id=chat,
-            text="✏️ Envoie ton texte corrigé en réponse à ce message.",
-            reply_markup={
-                "force_reply": True,
-                "input_field_placeholder": "Ton texte corrigé",
-            },
-        )
-        if rep.get("ok"):
-            # On retient ce message : ta réponse permettra de retrouver le brouillon
-            supabase.table("drafts").update(
-                {"prompt_message_id": rep["result"]["message_id"]}
-            ).eq("id", draft_id).execute()
-            note = "À toi d'écrire."
-        else:
-            note = "Impossible d'ouvrir la saisie."
-        telegram("answerCallbackQuery", callback_query_id=cb["id"], text=note)
-        return
-
-    # --- Les trois actions qui closent la carte ---
-    if action == "ok":
-        ok, rep = publier(draft)
-        entete = "✅ Publié" if ok else f"⚠️ Échec : {rep.get('description', '')}"
-        note = "Publié sur la chaîne." if ok else "Publication impossible."
-    elif action == "no":
-        supabase.table("drafts").update(
-            {"statut": "rejete", "maj_le": maintenant().isoformat()}
-        ).eq("id", draft_id).execute()
-        entete, note = "❌ Rejeté", "Écarté."
-    else:  # wait
-        supabase.table("drafts").update(
-            {"statut": "differe", "maj_le": maintenant().isoformat()}
-        ).eq("id", draft_id).execute()
-        entete, note = "⏸️ Différé", f"Reviendra dans {HEURES_AVANT_RAPPEL} h."
-
-    telegram(
-        "editMessageText",
-        chat_id=chat,
-        message_id=message_id,
-        text=construire_carte(draft, entete_resultat=entete),
-        disable_web_page_preview=True,
-    )
-    telegram("answerCallbackQuery", callback_query_id=cb["id"], text=note)
-
-
-def traiter_reponse(msg):
-    """Traite une réponse à une carte : remplace le texte du brouillon."""
-    original = msg["reply_to_message"]["message_id"]
-    nouveau_texte = (msg.get("text") or "").strip()
-    if not nouveau_texte:
-        return
-
-    # Ta réponse peut viser la carte elle-même, ou la demande de texte
-    champs = "id, cluster_id, message_id"
-    res = (
-        supabase.table("drafts").select(champs)
-        .eq("message_id", original).eq("statut", "en_attente").execute().data
-    )
-    if not res:
-        res = (
-            supabase.table("drafts").select(champs)
-            .eq("prompt_message_id", original).eq("statut", "en_attente").execute().data
-        )
-    if not res:
-        return
-
-    draft = {
-        "id": res[0]["id"],
-        "cluster_id": res[0]["cluster_id"],
-        "contenu": nouveau_texte,
-    }
-    carte_id = res[0]["message_id"]
-
-    supabase.table("drafts").update(
-        {"contenu": nouveau_texte, "maj_le": maintenant().isoformat()}
-    ).eq("id", draft["id"]).execute()
-
-    # On met à jour la carte (et non le message de demande)
-    telegram(
-        "editMessageText",
-        chat_id=msg["chat"]["id"],
-        message_id=carte_id,
-        text=construire_carte(draft, entete_resultat="✏️ Modifié"),
-        reply_markup=clavier(draft["id"]),
-        disable_web_page_preview=True,
-    )
-
-    # On efface la demande de texte pour garder la conversation propre
-    if original != carte_id:
-        telegram("deleteMessage", chat_id=msg["chat"]["id"], message_id=original)
-
-
-def lire_actions():
-    """Récupère les clics et réponses depuis le dernier passage."""
-    offset = lire_offset()
-    rep = telegram("getUpdates", offset=offset, timeout=0, limit=50)
-    if not rep.get("ok"):
-        print(f"  Lecture impossible : {rep}")
-        return 0
-
-    updates = rep["result"]
-    traites = 0
-    for u in updates:
-        try:
-            if "callback_query" in u:
-                traiter_clic(u["callback_query"])
-                traites += 1
-            elif "message" in u and "reply_to_message" in u["message"]:
-                traiter_reponse(u["message"])
-                traites += 1
-        except Exception as e:
-            print(f"  Action ignorée : {e}")
-
-    if updates:
-        ecrire_offset(updates[-1]["update_id"] + 1)
-    return traites
+    reponse.raise_for_status()
+    texte = reponse.json()["choices"][0]["message"]["content"].strip()
+    return majuscule_initiale(texte)
 
 
 def main():
-    traites = lire_actions()       # d'abord tes actions
-    majs = rafraichir_cartes()     # puis les dossiers qui se sont enrichis
-    envoyees = envoyer_cartes()    # enfin les nouvelles cartes
-    print(f"Terminé. {traites} actions traitées, {majs} cartes mises à jour, "
-          f"{envoyees} cartes envoyées.")
+    # 1. Clusters ayant déjà un brouillon Telegram (à ne pas refaire)
+    drafts_existants = (
+        supabase.table("drafts").select("cluster_id").eq("reseau", "telegram").execute().data
+    )
+    deja_fait = {d["cluster_id"] for d in drafts_existants}
+
+    # 2. Clusters récents, on garde ceux sans brouillon
+    limite = (datetime.now(timezone.utc) - timedelta(hours=AGE_MAX_HEURES)).isoformat()
+    clusters = (
+        supabase.table("clusters")
+        .select("id, titre")
+        .eq("statut", "actif")
+        .gt("activite_le", limite)
+        .order("cree_le", desc=True)
+        .limit(60)
+        .execute()
+        .data
+    )
+    a_rediger = [c for c in clusters if c["id"] not in deja_fait][:CLUSTERS_PAR_PASSAGE]
+
+    if not a_rediger:
+        print("Aucun cluster à rédiger.")
+        return
+
+    ecrits = 0
+    for cluster in a_rediger:
+        cid = cluster["id"]
+
+        # 3. Récupérer les faits (messages sources du cluster)
+        msgs = (
+            supabase.table("messages")
+            .select("contenu")
+            .eq("cluster_id", cid)
+            .limit(MESSAGES_PAR_CLUSTER)
+            .execute()
+            .data
+        )
+        faits = "\n\n".join((m["contenu"] or "")[:500] for m in msgs if m["contenu"])
+        if not faits.strip():
+            continue
+
+
+        # 4. Rédiger via Groq
+        try:
+            texte = rediger(faits)
+        except Exception as e:
+            print(f"  Rédaction indisponible pour {cid}, on réessaiera : {e}")
+            continue
+
+        # Sécurité : ne jamais enregistrer un brouillon vide (repris au prochain passage)
+        if not texte.strip():
+            print(f"  Draft vide pour {cid}, on réessaiera au prochain passage.")
+            continue
+
+        # 5. Enregistrer le brouillon
+        supabase.table("drafts").insert(
+            {"cluster_id": cid, "reseau": "telegram", "contenu": texte, "statut": "en_attente"}
+        ).execute()
+        ecrits += 1
+
+    print(f"Terminé. {ecrits} drafts rédigés.")
 
 
 if __name__ == "__main__":
