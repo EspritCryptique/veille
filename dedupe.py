@@ -28,7 +28,7 @@ SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 # --- Réglages ajustables ---
 FENETRE_HEURES = 48          # on ne compare qu'aux clusters récents
 TOP_K = 5                    # clusters candidats récupérés
-SEUIL_CANDIDAT = 0.70        # en dessous : pas même un candidat
+SEUIL_CANDIDAT = 0.76        # en dessous : pas même un candidat
 SEUIL_IDENTIQUE = 0.97       # au-dessus : quasi identique, rattacher sans LLM
 MAX_CANDIDATS_LLM = 3        # candidats max soumis à l'arbitre
 MESSAGES_PAR_PASSAGE = 25    # lot par passage (plus d'arbitrages = passages plus longs)
@@ -59,6 +59,33 @@ def extraire_titre(texte):
     return t.strip()[:300]
 
 
+# Mots capitalisés qui ne désignent PAS un acteur (vocabulaire générique)
+GENERIQUES = {
+    "bitcoin", "btc", "eth", "ethereum", "solana", "sol", "xrp", "crypto",
+    "cryptocurrency", "blockchain", "usd", "usdt", "usdc", "just", "breaking",
+    "new", "news", "update", "latest", "intel", "insight", "alert", "report",
+    "million", "billion", "trillion", "company", "public", "market", "markets",
+    "price", "today", "the", "this", "that", "after", "first", "bitcoins",
+}
+
+
+def acteurs(texte):
+    """Extrait les acteurs cités : noms propres et sigles, hors mots génériques."""
+    mots = re.findall(r"\b[A-Z][A-Za-z0-9&.\-]{2,}\b", texte)
+    return {m.lower().strip(".") for m in mots} - GENERIQUES
+
+
+def memes_acteurs(texte_a, texte_b):
+    """Deux actualités ne peuvent être le même événement que si elles
+    partagent au moins un acteur. Évite de confondre deux sociétés
+    différentes qui font le même type d'opération.
+    Si l'un des textes ne cite aucun acteur, on laisse l'arbitre décider."""
+    a, b = acteurs(texte_a), acteurs(texte_b)
+    if not a or not b:
+        return True
+    return bool(a & b)
+
+
 def vecteur_en_texte(v):
     return "[" + ",".join(str(x) for x in v) + "]"
 
@@ -78,6 +105,9 @@ def meme_evenement(texte_a, texte_b):
     prompt = (
         "Deux actualités crypto/finance. Relèvent-elles de la MÊME annonce "
         "ou du MÊME événement ?\n\n"
+        "RÈGLE PRIORITAIRE : si les acteurs principaux sont différents "
+        "(deux sociétés distinctes, deux pays distincts, deux institutions "
+        "distinctes), réponds NON, même si l'opération décrite est du même type.\n\n"
         "Réponds OUI si elles concernent le même acteur et la même annonce au "
         "même moment, MÊME si elles en décrivent des aspects différents ou "
         "citent des chiffres différents. Exemple : une société qui publie son "
@@ -162,6 +192,8 @@ def main():
             .data
         )
         candidats = [c for c in candidats if c["similarite"] >= SEUIL_CANDIDAT]
+        # Garde-fou : on écarte les dossiers qui ne partagent aucun acteur
+        candidats = [c for c in candidats if memes_acteurs(contenu, c["titre"] or "")]
 
         cible = None
         if candidats and candidats[0]["similarite"] >= SEUIL_IDENTIQUE:
