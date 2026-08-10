@@ -7,10 +7,9 @@ Cockpit Telegram — ta console de gestion des news.
   2. lit tes clics et tes réponses, puis agit :
        ✅ Publier     -> publie sur ta chaîne
        🔄 Reformuler  -> l'IA propose une autre version (seul bouton payant)
-       ✏️ Modifier    -> te demande ton texte, puis met la carte à jour
        ❌ Rejeter     -> écarte le brouillon
        ⏸️ Différer    -> le représente plus tard
-       (tu peux aussi répondre directement à la carte pour la corriger)
+       Pour corriger un texte : réponds simplement à la carte avec ta version.
 
 Les cartes sont envoyées de la plus récente à la plus ancienne.
 Tout est déterministe sauf "Reformuler", qui appelle le modèle à la demande.
@@ -73,10 +72,7 @@ def clavier(draft_id):
                 {"text": "🔄 Reformuler", "callback_data": f"redo:{draft_id}"},
             ],
             [
-                {"text": "✏️ Modifier", "callback_data": f"edit:{draft_id}"},
                 {"text": "❌ Rejeter", "callback_data": f"no:{draft_id}"},
-            ],
-            [
                 {"text": "⏸️ Différer", "callback_data": f"wait:{draft_id}"},
             ],
         ]
@@ -163,7 +159,7 @@ def construire_carte(draft, entete_resultat=""):
         lignes.append(f"🔗 {lien}")
     if not entete_resultat:
         lignes.append("")
-        lignes.append("— Réponds à ce message pour corriger le texte.")
+        lignes.append("— Réponds à ce message avec ta version pour corriger le texte.")
     return "\n".join(lignes)
 
 
@@ -253,7 +249,7 @@ def rafraichir_cartes():
 
     Le dossier est "vivant" : si une nouvelle chaîne relaie la même actualité,
     la carte se met à jour toute seule. On ne touche PAS au texte du post,
-    pour ne pas écraser tes corrections : utilise "Modifier" pour cela.
+    pour ne pas écraser tes corrections : réponds à la carte pour cela.
     """
     envoyes = (
         supabase.table("drafts")
@@ -347,28 +343,6 @@ def traiter_clic(cb):
                      construire_carte(draft, entete_resultat="🔄 Reformulé par l'IA"),
                      clavier(draft_id))
         telegram("answerCallbackQuery", callback_query_id=cb["id"], text="Nouvelle version.")
-        return
-
-    # --- Modifier : on te demande ton texte, la carte reste active ---
-    if action == "edit":
-        rep = telegram(
-            "sendMessage",
-            chat_id=chat,
-            text="✏️ Envoie ton texte corrigé en réponse à ce message.",
-            reply_markup={
-                "force_reply": True,
-                "input_field_placeholder": "Ton texte corrigé",
-            },
-        )
-        if rep.get("ok"):
-            # On retient ce message : ta réponse permettra de retrouver le brouillon
-            supabase.table("drafts").update(
-                {"prompt_message_id": rep["result"]["message_id"]}
-            ).eq("id", draft_id).execute()
-            note = "À toi d'écrire."
-        else:
-            note = "Impossible d'ouvrir la saisie."
-        telegram("answerCallbackQuery", callback_query_id=cb["id"], text=note)
         return
 
     # --- Les trois actions qui closent la carte ---
