@@ -468,9 +468,17 @@ def traiter_commande(msg):
             if ancienne:
                 telegram("unpinChatMessage", chat_id=chat, message_id=int(ancienne))
             nouvelle = rep["result"]["message_id"]
-            telegram("pinChatMessage", chat_id=chat, message_id=nouvelle,
-                     disable_notification=True)
-            ecrire_etat("aide_epinglee", nouvelle)
+            epingle = telegram("pinChatMessage", chat_id=chat, message_id=nouvelle,
+                               disable_notification=True)
+            if epingle.get("ok"):
+                ecrire_etat("aide_epinglee", nouvelle)
+                print("  Aide épinglée.")
+            else:
+                # On le signale au lieu de le taire
+                print(f"  Épinglage impossible : {epingle}")
+                telegram("sendMessage", chat_id=chat,
+                         text="⚠️ Je n'ai pas pu épingler ce message. "
+                              "Tu peux l'épingler à la main : appui long → Épingler.")
 
     elif commande == "/etat":
         debut_jour = maintenant().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
