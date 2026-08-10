@@ -3,7 +3,7 @@ Cockpit Telegram — ta console de gestion des news.
 
 À chaque passage :
   1. envoie les brouillons en attente sous forme de cartes enrichies
-     (score, catégorie, ancienneté, sources, liens d'origine) ;
+     (catégorie, ancienneté, sources, liens d'origine) ;
   2. lit tes clics et tes réponses, puis agit :
        ✅ Publier     -> publie sur ta chaîne
        ✏️ Reformuler  -> redemande un texte au modèle (seul bouton payant)
@@ -11,7 +11,7 @@ Cockpit Telegram — ta console de gestion des news.
        ⏸️ Différer    -> le représente plus tard
        (répondre au message = corriger le texte à la main)
 
-Les cartes sont envoyées par ordre d'importance décroissante.
+Les cartes sont envoyées de la plus récente à la plus ancienne.
 Tout est déterministe sauf "Reformuler", qui appelle le modèle.
 """
 
@@ -35,7 +35,6 @@ SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 CARTES_PAR_PASSAGE = 5        # nb de cartes envoyées par passage
 HEURES_AVANT_RAPPEL = 6       # un brouillon différé revient après ce délai
 AGE_MAX_HEURES = 24           # au-delà, un brouillon non traité est périmé
-SCORE_MINIMUM = 0             # passe à 40 ou 50 pour ne recevoir que l'important
 
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -81,12 +80,12 @@ def clavier(draft_id):
 
 
 def contexte_cluster(cluster_id):
-    """Rassemble tout ce qui aide à décider : score, sources, liens."""
-    infos = {"entete": "", "sources": "", "liens": [], "faits": ""}
+    """Rassemble tout ce qui aide à décider : contexte, sources, liens."""
+    infos = {"entete": "", "sources": "", "liens": [], "faits": "", "nb_sources": 0}
 
     cl = (
         supabase.table("clusters")
-        .select("categorie, importance, premier_vu_le")
+        .select("categorie, premier_vu_le")
         .eq("id", cluster_id)
         .execute()
         .data
@@ -102,11 +101,9 @@ def contexte_cluster(cluster_id):
     srcs = supabase.table("sources").select("id, identifiant").execute().data
     noms = {s["id"]: s["identifiant"] for s in srcs}
 
-    # En-tête : score · catégorie · ancienneté
+    # En-tête : catégorie · ancienneté
     morceaux = []
     if cl:
-        if cl[0].get("importance"):
-            morceaux.append(f"Score {cl[0]['importance']}")
         if cl[0].get("categorie"):
             morceaux.append(cl[0]["categorie"])
         morceaux.append(anciennete(cl[0].get("premier_vu_le")))
@@ -120,6 +117,7 @@ def contexte_cluster(cluster_id):
             vues.append(nom)
         if nom and m.get("externe_id"):
             liens.append(f"https://t.me/{nom.lstrip('@')}/{m['externe_id']}")
+    infos["nb_sources"] = len(vues)
     if vues:
         infos["sources"] = f"📎 {len(vues)} source(s) : " + ", ".join(vues)
     infos["liens"] = liens[:3]
@@ -161,7 +159,7 @@ def ecrire_offset(valeur):
 # ---------------------------------------------------------------- 1. ENVOI
 
 def envoyer_cartes():
-    """Envoie les brouillons en attente, les plus importants d'abord."""
+    """Envoie les brouillons en attente, les plus récents d'abord."""
     limite = (maintenant() - timedelta(hours=HEURES_AVANT_RAPPEL)).isoformat()
     supabase.table("drafts").update(
         {"statut": "en_attente", "message_id": None}
@@ -185,13 +183,6 @@ def envoyer_cartes():
     if not candidats:
         return 0
 
-    # On trie par score d'importance décroissant
-    ids = list({c["cluster_id"] for c in candidats})
-    cls = supabase.table("clusters").select("id, importance").in_("id", ids).execute().data
-    scores = {c["id"]: (c["importance"] or 0) for c in cls}
-    candidats = [c for c in candidats if scores.get(c["cluster_id"], 0) >= SCORE_MINIMUM]
-    candidats.sort(key=lambda c: scores.get(c["cluster_id"], 0), reverse=True)
-
     envoyees = 0
     for d in candidats[:CARTES_PAR_PASSAGE]:
         rep = telegram(
@@ -202,13 +193,52 @@ def envoyer_cartes():
             disable_web_page_preview=True,
         )
         if rep.get("ok"):
-            supabase.table("drafts").update(
-                {"message_id": rep["result"]["message_id"]}
-            ).eq("id", d["id"]).execute()
+            supabase.table("drafts").update({
+                "message_id": rep["result"]["message_id"],
+                "nb_sources": contexte_cluster(d["cluster_id"])["nb_sources"],
+            }).eq("id", d["id"]).execute()
             envoyees += 1
         else:
             print(f"  Envoi impossible : {rep}")
     return envoyees
+
+
+def rafraichir_cartes():
+    """Met à jour les cartes déjà envoyées quand une source s'ajoute au dossier.
+
+    Le dossier est "vivant" : si une nouvelle chaîne relaie la même actualité,
+    la carte se met à jour toute seule. On ne touche PAS au texte du post,
+    pour ne pas écraser tes corrections : utilise "Reformuler" pour cela.
+    """
+    envoyes = (
+        supabase.table("drafts")
+        .select("id, contenu, cluster_id, message_id, nb_sources")
+        .eq("statut", "en_attente")
+        .filter("message_id", "not.is", "null")
+        .limit(30)
+        .execute()
+        .data
+    )
+
+    majs = 0
+    for d in envoyes:
+        actuel = contexte_cluster(d["cluster_id"])["nb_sources"]
+        if actuel == (d.get("nb_sources") or 0):
+            continue  # rien de neuf : on ne modifie pas le message
+        rep = telegram(
+            "editMessageText",
+            chat_id=CHAT_ID,
+            message_id=d["message_id"],
+            text=construire_carte(d),
+            reply_markup=clavier(d["id"]),
+            disable_web_page_preview=True,
+        )
+        if rep.get("ok"):
+            supabase.table("drafts").update(
+                {"nb_sources": actuel}
+            ).eq("id", d["id"]).execute()
+            majs += 1
+    return majs
 
 
 # ------------------------------------------------------- 2. LECTURE DES CLICS
@@ -362,9 +392,11 @@ def lire_actions():
 
 
 def main():
-    traites = lire_actions()
-    envoyees = envoyer_cartes()
-    print(f"Terminé. {traites} actions traitées, {envoyees} cartes envoyées.")
+    traites = lire_actions()       # d'abord tes actions
+    majs = rafraichir_cartes()     # puis les dossiers qui se sont enrichis
+    envoyees = envoyer_cartes()    # enfin les nouvelles cartes
+    print(f"Terminé. {traites} actions traitées, {majs} cartes mises à jour, "
+          f"{envoyees} cartes envoyées.")
 
 
 if __name__ == "__main__":
