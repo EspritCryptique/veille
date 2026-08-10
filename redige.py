@@ -233,34 +233,6 @@ REFUSÉ  : 🟢 Des médiateurs progressent pour relancer les pourparlers US-Ira
 CORRIGÉ : 🟢 Des médiateurs progressent pour relancer les pourparlers entre les États-Unis et l'Iran et restaurer un cessez-le-feu.
 """
 
-# --- Mots-clés qui signalent une actualité à fort impact ---
-MOTS_FORTS = [
-    "hack", "exploit", "piratage", "sec ", "etf", "milliard", "trillion",
-    "faillite", "bankruptcy", "ban ", "interdiction", "fed", "record",
-    "all-time high", "liquidation", "approve", "approuv", "lawsuit",
-    "procès", "arrest", "fraud", "fraude", "halving", "listing",
-]
-
-
-def calculer_score(nb_sources, fiabilite_moyenne, textes, age_heures):
-    """Score d'importance de 0 à 100. 100 % déterministe, aucun coût.
-
-    Il combine quatre signaux : le nombre de sources qui relaient
-    l'information (corroboration), la fiabilité de ces sources, la
-    présence de mots-clés à fort impact, et la fraîcheur.
-    """
-    score = 25                                        # base
-    score += min(nb_sources - 1, 4) * 12              # jusqu'à +48 (corroboration)
-    score += fiabilite_moyenne * 0.15                 # jusqu'à +15
-    texte = " ".join(textes).lower()
-    score += min(sum(1 for m in MOTS_FORTS if m in texte), 3) * 5   # jusqu'à +15
-    if age_heures < 1:
-        score += 10
-    elif age_heures < 6:
-        score += 5
-    return max(0, min(int(score), 100))
-
-
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
@@ -317,10 +289,6 @@ def rediger(faits):
 
 
 def main():
-    # 0. Fiabilité de chaque source (pour le score)
-    sources = supabase.table("sources").select("id, fiabilite").execute().data
-    fiabilites = {s["id"]: s["fiabilite"] for s in sources}
-
     # 1. Clusters ayant déjà un brouillon Telegram (à ne pas refaire)
     drafts_existants = (
         supabase.table("drafts").select("cluster_id").eq("reseau", "telegram").execute().data
@@ -352,7 +320,7 @@ def main():
         # 3. Récupérer les faits (messages sources du cluster)
         msgs = (
             supabase.table("messages")
-            .select("contenu, source_id, poste_le")
+            .select("contenu")
             .eq("cluster_id", cid)
             .limit(MESSAGES_PAR_CLUSTER)
             .execute()
@@ -362,21 +330,6 @@ def main():
         if not faits.strip():
             continue
 
-        # Score d'importance (déterministe) -> sert à trier les cartes
-        ids_sources = {m["source_id"] for m in msgs if m.get("source_id")}
-        moyenne = (
-            sum(fiabilites.get(i, 50) for i in ids_sources) / len(ids_sources)
-            if ids_sources else 50
-        )
-        dates = [m["poste_le"] for m in msgs if m.get("poste_le")]
-        age = 0
-        if dates:
-            plus_ancien = min(datetime.fromisoformat(d.replace("Z", "+00:00")) for d in dates)
-            age = (datetime.now(timezone.utc) - plus_ancien).total_seconds() / 3600
-        score = calculer_score(
-            len(ids_sources), moyenne, [m["contenu"] or "" for m in msgs], age
-        )
-        supabase.table("clusters").update({"importance": score}).eq("id", cid).execute()
 
         # 4. Rédiger via Groq
         try:
