@@ -237,6 +237,9 @@ CORRIGÉ : 📊 Les levées publiques de tokens crypto ont atteint 1,42 milliard
 
 REFUSÉ  : 📅 La SEC américaine doit examiner vendredi de nouvelles règles encadrant certains contrats d'investissement en actifs crypto.
 CORRIGÉ : 📅 La SEC américaine doit examiner vendredi de nouvelles règles encadrant certains contrats d'investissement liés aux crypto-actifs.
+
+REFUSÉ  : 🕵️ Le *New York Times* révèle que Guren Zhou, ancien responsable des Émirats arabes unis pour la plateforme crypto Web3Port, est à l'origine d'Aqua 1, qui a investi 100 millions $ dans le token WLFI de World Liberty Financial en juin.
+CORRIGÉ : 🕵️ Le New York Times révèle que Guren Zhou, ancien responsable des Émirats arabes unis pour la plateforme crypto Web3Port, est à l'origine d'Aqua 1, qui a investi 100 millions $ dans le token WLFI de World Liberty Financial en juin.
 """
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
