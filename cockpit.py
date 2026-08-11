@@ -5,7 +5,8 @@ Cockpit Telegram — ta console de gestion des news.
   1. envoie les brouillons en attente sous forme de cartes enrichies
      (catégorie, sources, liens d'origine) ;
   2. lit tes clics et tes réponses, puis agit :
-       ✅ Publier     -> publie sur ta chaîne
+       ✅ Publier     -> publie tout de suite sur ta chaîne
+       🕒 Programmer  -> place le post en file, publié automatiquement plus tard
        🔄 Reformuler  -> l'IA propose une autre version (seul bouton payant)
        ❌ Rejeter     -> écarte le brouillon
        ⏸️ Différer    -> le représente plus tard
@@ -21,9 +22,6 @@ from datetime import datetime, timedelta, timezone
 
 from supabase import create_client
 
-# On réutilise la fonction de rédaction (et donc TA charte) de redige.py
-from redige import rediger
-
 # --- Secrets (fournis par GitHub) ---
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]        # toi : où arrivent les cartes
@@ -35,6 +33,8 @@ SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 CARTES_PAR_PASSAGE = 5        # nb de cartes envoyées par passage
 HEURES_AVANT_RAPPEL = 6       # un brouillon différé revient après ce délai
 AGE_MAX_HEURES = 24           # au-delà, un brouillon non traité est périmé
+INTERVALLE_DEFAUT = 18        # minutes entre deux publications programmées
+PUBLICATIONS_PAR_PASSAGE = 3  # sécurité : jamais plus de 3 d'un coup
 
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -56,10 +56,13 @@ def clavier(draft_id):
         "inline_keyboard": [
             [
                 {"text": "✅ Publier", "callback_data": f"ok:{draft_id}"},
-                {"text": "🔄 Reformuler", "callback_data": f"redo:{draft_id}"},
+                {"text": "🕒 Programmer", "callback_data": f"queue:{draft_id}"},
             ],
             [
+                {"text": "🔄 Reformuler", "callback_data": f"redo:{draft_id}"},
                 {"text": "❌ Rejeter", "callback_data": f"no:{draft_id}"},
+            ],
+            [
                 {"text": "⏸️ Différer", "callback_data": f"wait:{draft_id}"},
             ],
         ]
@@ -157,6 +160,54 @@ def ecrire_etat(cle, valeur):
 
 def en_pause():
     return lire_etat("pause", "0") == "1"
+
+
+def intervalle():
+    """Minutes entre deux publications programmées (réglable avec /intervalle)."""
+    try:
+        return max(1, int(lire_etat("intervalle", str(INTERVALLE_DEFAUT))))
+    except ValueError:
+        return INTERVALLE_DEFAUT
+
+
+def decalage():
+    """Décalage horaire pour l'affichage (réglable avec /fuseau)."""
+    try:
+        return int(lire_etat("fuseau", "0"))
+    except ValueError:
+        return 0
+
+
+def heure_locale(quand):
+    """Affiche une heure dans TON fuseau plutôt qu'en UTC."""
+    if isinstance(quand, str):
+        quand = datetime.fromisoformat(quand.replace("Z", "+00:00"))
+    d = decalage()
+    return (quand + timedelta(hours=d)).strftime("%H:%M") + (f" UTC{d:+d}" if d else " UTC")
+
+
+def prochain_creneau():
+    """Calcule l'heure du prochain post : après le dernier programmé,
+    ou après la dernière publication, en respectant l'intervalle."""
+    base = maintenant()
+
+    deja = (
+        supabase.table("drafts").select("publier_a")
+        .eq("statut", "programme").order("publier_a", desc=True)
+        .limit(1).execute().data
+    )
+    if deja and deja[0].get("publier_a"):
+        dernier = datetime.fromisoformat(deja[0]["publier_a"].replace("Z", "+00:00"))
+        base = max(base, dernier + timedelta(minutes=intervalle()))
+    else:
+        publie = (
+            supabase.table("publications").select("publie_le")
+            .order("publie_le", desc=True).limit(1).execute().data
+        )
+        if publie:
+            dernier = datetime.fromisoformat(publie[0]["publie_le"].replace("Z", "+00:00"))
+            base = max(base, dernier + timedelta(minutes=intervalle()))
+    return base
 
 
 def compter(table, filtres=None, depuis=None, colonne_date="maj_le"):
@@ -276,6 +327,35 @@ def publier(draft):
     return True, rep
 
 
+def publier_programmes():
+    """Publie les posts dont le créneau est arrivé, un par un."""
+    prets = (
+        supabase.table("drafts")
+        .select("id, contenu, cluster_id, message_id, publier_a")
+        .eq("statut", "programme")
+        .lte("publier_a", maintenant().isoformat())
+        .order("publier_a")
+        .limit(PUBLICATIONS_PAR_PASSAGE)
+        .execute()
+        .data
+    )
+    publies = 0
+    for d in prets:
+        ok, rep = publier(d)
+        entete = (f"✅ PUBLIÉ à {heure_locale(maintenant())}" if ok
+                  else f"⚠️ ÉCHEC : {rep.get('description', '')}")
+        if not ok:
+            # On remet en attente pour que tu puisses réessayer
+            supabase.table("drafts").update(
+                {"statut": "en_attente", "publier_a": None}
+            ).eq("id", d["id"]).execute()
+        if d.get("message_id"):
+            editer_carte(CHAT_ID, d["message_id"],
+                         construire_carte(d, entete_resultat=entete))
+        publies += 1 if ok else 0
+    return publies
+
+
 def traiter_clic(cb):
     """Traite un appui sur un bouton."""
     action, draft_id = cb["data"].split(":", 1)
@@ -294,6 +374,19 @@ def traiter_clic(cb):
         return
     draft = res[0]
 
+    # Retirer de la file : la carte redevient modifiable
+    if action == "unqueue":
+        if draft["statut"] != "programme":
+            telegram("answerCallbackQuery", callback_query_id=cb["id"], text="Déjà traité.")
+            return
+        supabase.table("drafts").update({
+            "statut": "en_attente", "publier_a": None,
+            "maj_le": maintenant().isoformat(),
+        }).eq("id", draft_id).execute()
+        editer_carte(chat, message_id, construire_carte(draft), clavier(draft_id))
+        telegram("answerCallbackQuery", callback_query_id=cb["id"], text="Retiré de la file.")
+        return
+
     if draft["statut"] != "en_attente":
         telegram("answerCallbackQuery", callback_query_id=cb["id"], text="Déjà traité.")
         return
@@ -306,6 +399,8 @@ def traiter_clic(cb):
                      text="Aucun fait source disponible.", show_alert=True)
             return
         try:
+            # Chargement tardif : si redige.py est cassé, seul ce bouton l'est
+            from redige import rediger
             propose = rediger(ctx["faits"])
         except Exception as e:
             # On affiche l'erreur directement dans Telegram, pas seulement dans les logs
@@ -328,8 +423,27 @@ def traiter_clic(cb):
         telegram("answerCallbackQuery", callback_query_id=cb["id"], text="Nouvelle version.")
         return
 
+    # --- Programmer : le post part tout seul à son créneau ---
+    if action == "queue":
+        creneau = prochain_creneau()
+        supabase.table("drafts").update({
+            "statut": "programme",
+            "publier_a": creneau.isoformat(),
+            "maj_le": maintenant().isoformat(),
+        }).eq("id", draft_id).execute()
+        editer_carte(
+            chat, message_id,
+            construire_carte(draft, entete_resultat=f"🕒 PROGRAMMÉ à {heure_locale(creneau)}"),
+            {"inline_keyboard": [[
+                {"text": "↩️ Retirer de la file", "callback_data": f"unqueue:{draft_id}"}
+            ]]},
+        )
+        telegram("answerCallbackQuery", callback_query_id=cb["id"],
+                 text=f"Programmé à {heure_locale(creneau)}.")
+        return
+
     # --- Les trois actions qui closent la carte ---
-    heure = maintenant().strftime("%H:%M UTC")
+    heure = heure_locale(maintenant())
 
     if action == "ok":
         ok, rep = publier(draft)
@@ -397,6 +511,10 @@ def traiter_reponse(msg):
 AIDE = (
     "🎛️ Commandes disponibles\n\n"
     "/etat — file d'attente et activité du jour\n"
+    "/file — voir la file de publication programmée\n"
+    "/intervalle 20 — minutes entre deux publications\n"
+    "/fuseau 8 — afficher les heures en UTC+8\n"
+    "/vider — vider la file de publication\n"
     "/pause — arrête l'envoi de nouvelles cartes\n"
     "/reprendre — relance l'envoi\n"
     "/sources — liste tes sources\n"
@@ -442,6 +560,7 @@ def traiter_commande(msg):
         lignes = [
             "📊 État du système\n",
             f"En attente de validation : {compter('drafts', {'statut': 'en_attente'})}",
+            f"Programmés : {compter('drafts', {'statut': 'programme'})}",
             f"Différés : {compter('drafts', {'statut': 'differe'})}",
             f"Publiés aujourd'hui : {compter('drafts', {'statut': 'publie'}, debut_jour)}",
             f"Rejetés aujourd'hui : {compter('drafts', {'statut': 'rejete'}, debut_jour)}",
@@ -462,6 +581,51 @@ def traiter_commande(msg):
     elif commande == "/reprendre":
         ecrire_etat("pause", "0")
         telegram("sendMessage", chat_id=chat, text="▶️ Envoi relancé.")
+
+    elif commande == "/file":
+        prets = (
+            supabase.table("drafts").select("contenu, publier_a")
+            .eq("statut", "programme").order("publier_a").limit(25).execute().data
+        )
+        if not prets:
+            telegram("sendMessage", chat_id=chat,
+                     text="🕒 File de publication vide.\n"
+                          f"Intervalle actuel : {intervalle()} min.")
+            return
+        lignes = [f"🕒 File de publication ({len(prets)} posts, "
+                  f"un toutes les {intervalle()} min)\n"]
+        for p in prets:
+            extrait = (p["contenu"] or "").replace("\n", " ")[:60]
+            lignes.append(f"{heure_locale(p['publier_a'])} — {extrait}…")
+        telegram("sendMessage", chat_id=chat, text="\n".join(lignes))
+
+    elif commande == "/intervalle":
+        if not argument.isdigit() or int(argument) < 1:
+            telegram("sendMessage", chat_id=chat,
+                     text=f"Usage : /intervalle 20\nActuel : {intervalle()} min.")
+            return
+        ecrire_etat("intervalle", argument)
+        telegram("sendMessage", chat_id=chat,
+                 text=f"⏱️ Intervalle réglé sur {argument} min.\n"
+                      "Les posts déjà programmés gardent leur créneau.")
+
+    elif commande == "/fuseau":
+        try:
+            ecrire_etat("fuseau", str(int(argument)))
+        except ValueError:
+            telegram("sendMessage", chat_id=chat,
+                     text=f"Usage : /fuseau 8 (pour UTC+8)\nActuel : UTC{decalage():+d}")
+            return
+        telegram("sendMessage", chat_id=chat,
+                 text=f"🌍 Heures affichées en UTC{decalage():+d}.")
+
+    elif commande == "/vider":
+        remis = (
+            supabase.table("drafts").update({"statut": "en_attente", "publier_a": None})
+            .eq("statut", "programme").execute().data
+        )
+        telegram("sendMessage", chat_id=chat,
+                 text=f"🧹 File vidée. {len(remis)} posts remis en attente.")
 
     elif commande == "/sources":
         srcs = (
@@ -543,11 +707,12 @@ def lire_actions():
 
 
 def main():
-    traites = lire_actions()       # d'abord tes actions
-    majs = rafraichir_cartes()     # puis les dossiers qui se sont enrichis
-    envoyees = envoyer_cartes()    # enfin les nouvelles cartes
-    print(f"Terminé. {traites} actions traitées, {majs} cartes mises à jour, "
-          f"{envoyees} cartes envoyées.")
+    traites = lire_actions()          # d'abord tes actions
+    publies = publier_programmes()    # puis la file de publication
+    majs = rafraichir_cartes()        # puis les dossiers qui se sont enrichis
+    envoyees = envoyer_cartes()       # enfin les nouvelles cartes
+    print(f"Terminé. {traites} actions traitées, {publies} posts programmés publiés, "
+          f"{majs} cartes mises à jour, {envoyees} cartes envoyées.")
 
 
 if __name__ == "__main__":
