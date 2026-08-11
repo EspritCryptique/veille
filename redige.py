@@ -36,7 +36,7 @@ else:
     MODELE = "openai/gpt-oss-120b"
 CLUSTERS_PAR_PASSAGE = 10                   # nombre de drafts rédigés par passage
 MESSAGES_PAR_CLUSTER = 5                    # faits max transmis au LLM
-AGE_MAX_HEURES = 24                         # on ne rédige que pour l'actu fraîche
+AGE_MAX_HEURES = 6                          # on ne rédige que pour l'actu fraîche
 
 # --- CHARTE ÉDITORIALE : c'est ici que vit TON style. Modifie librement. ---
 CHARTE_EDITORIALE = """
@@ -325,7 +325,7 @@ def main():
         # 3. Récupérer les faits (messages sources du cluster)
         msgs = (
             supabase.table("messages")
-            .select("contenu")
+            .select("contenu, poste_le")
             .eq("cluster_id", cid)
             .limit(MESSAGES_PAR_CLUSTER)
             .execute()
@@ -334,6 +334,17 @@ def main():
         faits = "\n\n".join((m["contenu"] or "")[:500] for m in msgs if m["contenu"])
         if not faits.strip():
             continue
+
+        # Garde-fou : on se base sur la VRAIE date de l'actualité, pas sur la
+        # date de création du dossier. Une vieille news ne produit pas de post.
+        dates = [m["poste_le"] for m in msgs if m.get("poste_le")]
+        if dates:
+            plus_recente = max(
+                datetime.fromisoformat(d.replace("Z", "+00:00")) for d in dates
+            )
+            heures = (datetime.now(timezone.utc) - plus_recente).total_seconds() / 3600
+            if heures > AGE_MAX_HEURES:
+                continue
 
 
         # 4. Rédiger via Groq
