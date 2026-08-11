@@ -33,7 +33,7 @@ SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 MESSAGES_PAR_CHAINE = 30
 
 # On ignore tout message plus ancien que ce délai : on ne veut que de l'actu fraîche.
-AGE_MAX_HEURES = 24
+AGE_MAX_HEURES = 6
 
 # Connexion à la base de données
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
