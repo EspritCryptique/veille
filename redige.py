@@ -231,6 +231,12 @@ CORRIGÉ : 🚨 La Réserve fédérale américaine ne devrait pas réduire les t
 
 REFUSÉ  : 🟢 Des médiateurs progressent pour relancer les pourparlers US-Iran et restaurer un cesse-feu intérimaire.
 CORRIGÉ : 🟢 Des médiateurs progressent pour relancer les pourparlers entre les États-Unis et l'Iran et restaurer un cessez-le-feu.
+
+REFUSÉ  : 📊 Les levées publiques de tokens en crypto ont atteint 1,42 milliard $ en 2026, avec Ethereum en tête à 334 millions $.
+CORRIGÉ : 📊 Les levées publiques de tokens crypto ont atteint 1,42 milliard $ en 2026, Ethereum enregistrant 334 millions $ sur son réseau.
+
+REFUSÉ  : 📅 La SEC américaine doit examiner vendredi de nouvelles règles encadrant certains contrats d'investissement en actifs crypto.
+CORRIGÉ : 📅 La SEC américaine doit examiner vendredi de nouvelles règles encadrant certains contrats d'investissement liés aux crypto-actifs.
 """
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
